@@ -135,6 +135,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
     payTypes: ["訂金", "尾款", "全額", "加購", "租棚", "儲值金", "社群經營", "其他"],
     methods: ["現金", "轉帳", "LINEPAY", "刷卡0927", "轉帳0927", "代墊款"],
     advancers: ["居米", "嚕米"],
+    salaryNames: { 居米: "Jimmy", 嚕米: "嚕米" },
     categories: [
       { name: "化妝師費用", type: "direct" },
       { name: "攝影師抽成", type: "direct" },
@@ -205,12 +206,45 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
     return { deferred, receivable };
   }
 
-  function advanceOwed(entries, upTo) {
+  /* 代墊款隨下個月初的薪資一起撥還：上個月底以前未還的代墊，由當月薪資扣抵。
+     薪資那筆仍保留實際匯款金額，只是其中一部分算歸還代墊，不算薪資費用。 */
+  function settle(entries, settings) {
+    const list = live(entries);
+    const names = settings.salaryNames || {};
+    const people = new Set(list.filter(e => (e.kind === "expense" && e.method === ADVANCE) || e.kind === "reimburse").map(e => e.advancedBy || UNFILLED));
+    const repaid = {};
+    for (const person of people) {
+      const key = names[person] || person;
+      const isAdvance = e => e.kind === "expense" && e.method === ADVANCE && (e.advancedBy || UNFILLED) === person;
+      const isReturn = e => e.kind === "reimburse" && (e.advancedBy || UNFILLED) === person;
+      const isSalary = e => e.kind === "expense" && e.category === "薪資" && e.method !== ADVANCE && String(e.desc || "").includes(key);
+      const events = list.filter(e => isAdvance(e) || isReturn(e) || isSalary(e)).sort((a, b) => a.date.localeCompare(b.date));
+      let returned = 0;
+      for (const e of events) {
+        if (isReturn(e)) returned += e.amount;
+        else if (isSalary(e)) {
+          const start = `${ym(e.date)}-01`;
+          const due = events.filter(x => isAdvance(x) && x.date < start).reduce((s, x) => s + x.amount, 0);
+          const auto = Math.min(Math.max(0, due - returned), e.amount);
+          const amount = e.advanceManual === undefined || e.advanceManual === null ? auto : e.advanceManual;
+          repaid[e.id] = { advanceRepaid: amount, repaidFor: person };
+          returned += amount;
+        }
+      }
+    }
+    return entries.map(e => (repaid[e.id] ? { ...e, ...repaid[e.id] } : e));
+  }
+
+  const netExpense = e => e.amount - (e.advanceRepaid || 0);
+
+  function advanceOwed(entries, upTo, settings) {
     const owed = {};
-    for (const e of live(entries)) {
+    const add = (name, n) => { owed[name || UNFILLED] = (owed[name || UNFILLED] || 0) + n; };
+    for (const e of live(settle(entries, settings))) {
       if (upTo && e.date > upTo) continue;
-      if (e.kind === "expense" && e.method === ADVANCE) owed[e.advancedBy || UNFILLED] = (owed[e.advancedBy || UNFILLED] || 0) + e.amount;
-      if (e.kind === "reimburse") owed[e.advancedBy || UNFILLED] = (owed[e.advancedBy || UNFILLED] || 0) - e.amount;
+      if (e.kind === "expense" && e.method === ADVANCE) add(e.advancedBy, e.amount);
+      if (e.kind === "reimburse") add(e.advancedBy, -e.amount);
+      if (e.advanceRepaid) add(e.repaidFor, -e.advanceRepaid);
     }
     return owed;
   }
@@ -236,7 +270,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
     const prefix = `${year}-`;
     const revenue = {}, cost = {}, opex = {}, details = MONTHS.map(() => []);
     const cash = blank();
-    for (const e of live(entries)) {
+    for (const e of live(settle(entries, settings))) {
       if (e.kind === "income" || e.kind === "refund") {
         if (e.date.startsWith(prefix)) cash[+e.date.slice(5, 7) - 1] += signedCash(e);
         for (const r of recognize(e)) {
@@ -251,8 +285,8 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
         const month = expenseMonth(e);
         if (!month.startsWith(prefix)) continue;
         const i = +month.slice(5, 7) - 1;
-        addTo(type === "direct" ? cost : opex, e.category, i, e.amount);
-        details[i].push({ date: e.date, amount: -e.amount, line: e.category, brand: e.brand, entry: e });
+        addTo(type === "direct" ? cost : opex, e.category, i, netExpense(e));
+        details[i].push({ date: e.date, amount: -netExpense(e), line: e.category, brand: e.brand, entry: e });
       }
     }
     const brandRank = k => { const i = settings.brands.indexOf(k.split("｜")[0]); return i < 0 ? 99 : i; };
@@ -300,14 +334,15 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
     const advance = blank();
     const methods = {};
     const touch = m => (methods[m] = methods[m] || { in: blank(), out: blank() });
-    for (const e of live(entries)) {
+    for (const e of live(settle(entries, settings))) {
       if (!e.date.startsWith(prefix)) continue;
       const i = +e.date.slice(5, 7) - 1;
       const method = e.method || UNFILLED;
       if (e.kind === "income") { addTo(inflow, e.brand || "其他", i, e.amount); touch(method).in[i] += e.amount; continue; }
       if (!isCashEntry(e)) { advance[i] += e.amount; continue; }
       const label = e.kind === "refund" ? "取消退款" : e.kind === "reimburse" ? "歸還代墊款" : e.category;
-      addTo(outflow, label, i, e.amount);
+      addTo(outflow, label, i, netExpense(e));
+      if (e.advanceRepaid) addTo(outflow, "歸還代墊款", i, e.advanceRepaid);
       touch(method).out[i] += e.amount;
     }
     const brandOrder = k => { const i = settings.brands.indexOf(k); return i < 0 ? 99 : i; };
@@ -338,7 +373,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
       rows.push({ key: "opening", label: "月初現金", type: "balance", values: opening, total: null });
       rows.push({ key: "ending", label: "月底現金", type: "balance", values: ending, total: null });
     }
-    const owed = MONTHS.map(m => sum(Object.values(advanceOwed(entries, monthEndOf(monthKey(year, m))))));
+    const owed = MONTHS.map(m => sum(Object.values(advanceOwed(entries, monthEndOf(monthKey(year, m)), settings))));
     rows.push({ type: "head", label: "代墊款（尚未付現，不算在流出）" });
     rows.push({ key: "adv", label: "本月新增代墊", type: "memo", values: advance, total: sum(advance) });
     rows.push({ key: "owed", label: "月底未還代墊款", type: "balance", values: owed, total: null });
@@ -666,7 +701,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
   };
 
   function ledgerRows(entries, year, settings) {
-    return live(entries).filter(e => !year || e.date.startsWith(`${year}-`)).sort((a, b) => a.date.localeCompare(b.date)).map(e => ({
+    return live(settle(entries, settings)).filter(e => !year || e.date.startsWith(`${year}-`)).sort((a, b) => a.date.localeCompare(b.date)).map(e => ({
       date: e.date,
       item: e.kind === "expense" ? e.category : e.kind === "income" ? e.brand : e.kind === "refund" ? "取消退款" : "歸還代墊款",
       desc: e.desc,
@@ -674,7 +709,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
       expense: e.kind === "income" ? "" : e.amount,
       method: e.method || "",
       advancedBy: e.advancedBy || "",
-      note: e.note || "",
+      note: [e.note, e.advanceRepaid ? `含代墊款 ${e.advanceRepaid}` : ""].filter(Boolean).join("；"),
       serviceDate: e.serviceDate || "",
       pnlMonth: e.kind === "expense" && categoryType(settings, e.category) === "none" ? "不列損益" : pnlMonthOf(e),
     }));
@@ -737,7 +772,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
   }
 
   root.LedgerEngine = {
-    DEFAULT_SETTINGS, ADVANCE, UNFILLED, CANCEL_LINE, recognize, expenseMonth, categoryType, balancesAt, advanceOwed, monthEndOf,
+    DEFAULT_SETTINGS, ADVANCE, UNFILLED, CANCEL_LINE, recognize, expenseMonth, categoryType, balancesAt, settle, advanceOwed, monthEndOf,
     buildPnL, buildCash, bookings, storedValues, reschedule, cancelBooking, undoCancel, makeDesc, explain, inferDate,
     parseIncomeDesc, parseRow, reparseEntry, canConfirm, confirmEntry, NO_DATE_FLAG, markSuspects, fingerprint, workbookPnL, workbookCash, ledgerRows, deferredList, live, ym,
   };
@@ -943,15 +978,16 @@ function monthSummary() {
   const pnl = E.buildPnL(S.entries, S.settings, y);
   const cash = E.buildCash(S.entries, S.settings, y);
   const of = (r, k) => r.rows.find(x => x.key === k).values[i];
-  const owed = Object.values(E.advanceOwed(S.entries)).reduce((s, x) => s + x, 0);
+  const owed = Object.values(E.advanceOwed(S.entries, null, S.settings)).reduce((s, x) => s + x, 0);
   return { cash: of(cash, "netCash"), net: of(pnl, "net"), revenue: of(pnl, "totalRev"), deferred: of(pnl, "deferred"), owed };
 }
 
 function viewLedger() {
   const sum = monthSummary();
   const q = S.query.trim().toLowerCase();
-  let rows = liveEntries().filter(e => e.date.startsWith(S.month));
-  const flagged = liveEntries().filter(e => e.flags?.length);
+  const settled = E.live(E.settle(S.entries, S.settings));
+  let rows = settled.filter(e => e.date.startsWith(S.month));
+  const flagged = settled.filter(e => e.flags?.length);
   if (!flagged.length) S.onlyFlagged = false;
   const noDate = liveEntries().filter(E.reparseEntry).length;
   if (S.onlyFlagged) rows = flagged;
@@ -968,7 +1004,7 @@ function viewLedger() {
         : `<span class="small muted">先填</span>`}</td>` : ""}
       <td class="num">${mmdd(e.date)}</td>
       <td>${esc(e.kind === "income" ? e.brand : e.kind === "expense" ? e.category : KIND_LABEL[e.kind])}</td>
-      <td class="wide">${esc(e.desc)}${e.flags?.length ? ` <span class="pill warn">待確認</span>` : ""}${e.cancel ? ` <span class="pill bad">已取消</span>` : ""}<div class="small muted">${esc((e.flags || []).join("；"))}</div></td>
+      <td class="wide">${esc(e.desc)}${e.flags?.length ? ` <span class="pill warn">待確認</span>` : ""}${e.cancel ? ` <span class="pill bad">已取消</span>` : ""}<div class="small muted">${esc([e.advanceRepaid ? `含代墊款 ${money(e.advanceRepaid)}，薪資費用 ${money(e.amount - e.advanceRepaid)}` : "", ...(e.flags || [])].filter(Boolean).join("；"))}</div></td>
       <td class="num">${e.kind === "income" ? money(e.amount) : ""}</td>
       <td class="num">${e.kind !== "income" ? money(e.amount) : ""}</td>
       <td>${e.method ? esc(e.method) : `<span class="pill warn">未填</span>`}${e.advancedBy ? `<div class="small muted">${esc(e.advancedBy)}</div>` : ""}</td>
@@ -1135,6 +1171,7 @@ function viewConfig() {
         <div><label for="c-brands">品牌（一行一個）</label>${area("c-brands", s.brands)}</div>
         <div><label for="c-methods">金流方式（一行一個）</label>${area("c-methods", s.methods)}</div>
         <div><label for="c-adv">代墊款人（一行一個）</label>${area("c-adv", s.advancers)}</div>
+        <div><label for="c-salary">代墊款人對應的薪資名稱（格式：居米=Jimmy，代墊款會從這個名字的薪資扣抵）</label>${area("c-salary", Object.entries(s.salaryNames || {}).map(([k, v]) => `${k}=${v}`))}</div>
       </div>
     </div>
     <div class="card">
@@ -1160,6 +1197,7 @@ function collectConfig() {
   return {
     ...S.settings,
     brands: lines("c-brands"), methods: lines("c-methods"), advancers: lines("c-adv"), categories: collectCategories(),
+    salaryNames: Object.fromEntries(lines("c-salary").map(l => l.split("=").map(x => x.trim())).filter(p => p[0] && p[1])),
     opening: { month: document.getElementById("c-open-m").value, amount: +document.getElementById("c-open-a").value || 0 },
   };
 }
@@ -1249,9 +1287,10 @@ function formBody() {
       ${field("d-service", direct ? "服務日期（服務成本必填）" : "服務日期（綁定預約才填）", textInput("d-service", d.serviceDate, 'type="date" data-k="serviceDate"'))}
       ${field("d-customer", "客人（綁定預約才填）", textInput("d-customer", d.customer, 'data-k="customer" list="custs" autocomplete="off"') + `<datalist id="custs">${custs.map(c => `<option value="${esc(c)}">`).join("")}</datalist>`)}
       ${d.serviceDate ? "" : field("d-pnl", "損益月份（要歸別的月份才改）", textInput("d-pnl", d.pnlMonth, 'type="month" data-k="pnlMonth"'))}
+      ${d.category === "薪資" ? field("d-adv-part", "其中的代墊款（留空會自動計算）", textInput("d-adv-part", d.advanceManual, 'type="number" min="0" inputmode="numeric" data-k="advanceManual"')) : ""}
     </div>`;
   } else if (d.kind === "reimburse") {
-    const owed = E.advanceOwed(S.entries);
+    const owed = E.advanceOwed(S.entries, null, S.settings);
     fields = `<div class="grid2">
       ${field("d-date", "還款日期", textInput("d-date", d.date, 'type="date" data-k="date" required'))}
       ${field("d-adv", "代墊款人", `<select id="d-adv" data-k="advancedBy">${opt(Object.keys(owed).filter(k => owed[k]).concat(d.advancedBy && !owed[d.advancedBy] ? [d.advancedBy] : []), d.advancedBy, "請選擇")}</select>`)}
@@ -1272,7 +1311,12 @@ function formBody() {
 function refreshHint() {
   const el = document.getElementById("d-hint");
   if (!el) return;
-  const text = E.explain({ ...draft, amount: +draft.amount || 0 });
+  let text = E.explain({ ...draft, amount: +draft.amount || 0 });
+  if (draft.kind === "expense" && draft.category === "薪資" && draft.date && +draft.amount > 0) {
+    const row = { ...draft, id: draft.id || "__draft", amount: +draft.amount, advanceManual: draft.advanceManual === "" || draft.advanceManual === undefined ? undefined : +draft.advanceManual };
+    const part = E.settle([...S.entries.filter(e => e.id !== row.id), row], S.settings).find(e => e.id === row.id).advanceRepaid || 0;
+    if (part) text = `${text}其中 ${money(part)} 是歸還代墊款，薪資費用算 ${money(row.amount - part)}。`;
+  }
   el.innerHTML = text ? `<div class="hint">${esc(text)}</div>` : "";
 }
 
@@ -1309,6 +1353,7 @@ function validate(d) {
     if (!d.method) return "請選金流方式。";
     if (d.method === E.ADVANCE && !d.advancedBy) return "請選代墊款人。";
     if (!d.desc?.trim()) return "請填細項。";
+    if (d.category === "薪資" && d.advanceManual !== "" && +d.advanceManual > +d.amount) return "代墊款不能大於這筆金額。";
     if (E.categoryType(S.settings, d.category) === "direct" && !d.serviceDate && !d.pnlMonth) return "服務成本請填服務日期，或指定損益月份。";
   }
   if (d.kind === "reimburse") {
@@ -1331,6 +1376,8 @@ async function submitForm() {
     if (changed && !d.serviceDate && !d.desc) d.desc = `${d.customer}${d.payType}`;
   }
   if (d.kind === "expense" && d.serviceDate) d.pnlMonth = "";
+  if (d.advanceManual === "" || d.advanceManual === undefined || d.category !== "薪資") delete d.advanceManual;
+  else d.advanceManual = +d.advanceManual;
   if (d.kind === "reimburse") d.desc = `歸還${d.advancedBy}代墊款`;
   if (prior && d.serviceDate !== prior.serviceDate && prior.serviceDate) {
     d.history = [...(d.history || []), { at: new Date().toISOString(), by: who(), action: "改期", from: prior.serviceDate, to: d.serviceDate }];
