@@ -522,6 +522,15 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
     };
   }
 
+  /* 缺資料的不能直接確認，要先補上服務日期或金流方式 */
+  const MISSING_FLAGS = [NO_DATE_FLAG, "沒有金流方式"];
+  const canConfirm = e => !!e.flags?.length && !e.flags.some(f => MISSING_FLAGS.includes(f));
+
+  function confirmEntry(e, who, now) {
+    const { flags, ...rest } = e;
+    return { ...rest, history: [...(e.history || []), { at: now, by: who, action: "批次確認", flags }] };
+  }
+
   function parseRow(row, settings) {
     const flags = [];
     const base = {
@@ -719,7 +728,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
   root.LedgerEngine = {
     DEFAULT_SETTINGS, ADVANCE, UNFILLED, CANCEL_LINE, recognize, expenseMonth, categoryType, balancesAt, advanceOwed, monthEndOf,
     buildPnL, buildCash, bookings, storedValues, reschedule, cancelBooking, undoCancel, makeDesc, explain, inferDate,
-    parseIncomeDesc, parseRow, reparseEntry, NO_DATE_FLAG, markSuspects, fingerprint, workbookPnL, workbookCash, ledgerRows, deferredList, live, ym,
+    parseIncomeDesc, parseRow, reparseEntry, canConfirm, confirmEntry, NO_DATE_FLAG, markSuspects, fingerprint, workbookPnL, workbookCash, ledgerRows, deferredList, live, ym,
   };
   if (typeof module !== "undefined") module.exports = root.LedgerEngine;
 })(typeof window !== "undefined" ? window : globalThis);
@@ -784,7 +793,7 @@ const mergeSettings = s => ({ ...clone(E.DEFAULT_SETTINGS), ...(s || {}) });
 
 const S = {
   tab: "ledger", month: todayStr().slice(0, 7), year: +todayStr().slice(0, 4), entries: [], settings: clone(E.DEFAULT_SETTINGS),
-  me: null, ready: false, loaded: false, accessError: "", loginMsg: "", query: "", onlyFlagged: false, bookTab: "upcoming", bookQuery: "", drill: null, importState: null,
+  me: null, ready: false, loaded: false, accessError: "", loginMsg: "", query: "", onlyFlagged: false, picked: new Set(), bookTab: "upcoming", bookQuery: "", drill: null, importState: null,
 };
 let store = null;
 let draft = null;
@@ -933,10 +942,15 @@ function viewLedger() {
   if (S.onlyFlagged) rows = flagged;
   if (q) rows = rows.filter(e => [e.desc, e.customer, e.brand, e.category, e.method, e.note].join(" ").toLowerCase().includes(q));
   rows.sort((a, b) => a.date.localeCompare(b.date));
+  const selectable = rows.filter(E.canConfirm);
+  const pickedCount = selectable.filter(e => S.picked.has(e.id)).length;
   const body = rows.map(e => {
     const pnl = E.ledgerRows([e], null, S.settings)[0].pnlMonth;
     const shifted = pnl && pnl !== E.ym(e.date);
     return `<tr class="click" data-act="edit" data-id="${esc(e.id)}">
+      ${S.onlyFlagged ? `<td data-act="noop">${E.canConfirm(e)
+        ? `<input type="checkbox" class="flag-pick" value="${esc(e.id)}"${S.picked.has(e.id) ? " checked" : ""} aria-label="選取 ${esc(e.desc)}">`
+        : `<span class="small muted">先填</span>`}</td>` : ""}
       <td class="num">${mmdd(e.date)}</td>
       <td>${esc(e.kind === "income" ? e.brand : e.kind === "expense" ? e.category : KIND_LABEL[e.kind])}</td>
       <td class="wide">${esc(e.desc)}${e.flags?.length ? ` <span class="pill warn">待確認</span>` : ""}${e.cancel ? ` <span class="pill bad">已取消</span>` : ""}<div class="small muted">${esc((e.flags || []).join("；"))}</div></td>
@@ -959,12 +973,13 @@ function viewLedger() {
         <input type="month" id="f-month" value="${esc(S.month)}" aria-label="月份">
         <input type="search" id="f-query" placeholder="搜尋客人、細項" value="${esc(S.query)}" aria-label="搜尋">
         ${flagged.length ? `<button class="btn tiny" data-act="toggleFlag">${S.onlyFlagged ? "看全部" : `待確認 ${flagged.length} 筆`}</button>` : ""}
+        ${S.onlyFlagged && selectable.length ? `<button class="btn tiny primary" data-act="confirmFlags" id="confirm-flags"${pickedCount ? "" : " disabled"}>確認選取 ${pickedCount} 筆</button>` : ""}
         ${noDate ? `<button class="btn tiny" data-act="reparse" id="reparse">重新判讀 ${noDate} 筆服務日期</button>` : ""}
       </div>
       <button class="btn primary" data-act="add" id="add-entry">新增一筆</button>
     </div>
     ${rows.length ? `<div class="tablewrap"><table>
-      <thead><tr><th>日期</th><th>項目</th><th>細項</th><th class="num">收入</th><th class="num">支出</th><th>金流</th><th>損益月份</th></tr></thead>
+      <thead><tr>${S.onlyFlagged ? `<th><input type="checkbox" id="flag-all" aria-label="全選可確認的項目"${selectable.length && selectable.every(e => S.picked.has(e.id)) ? " checked" : ""}></th>` : ""}<th>日期</th><th>項目</th><th>細項</th><th class="num">收入</th><th class="num">支出</th><th>金流</th><th>損益月份</th></tr></thead>
       <tbody>${body}</tbody></table></div>` : `<div class="empty">${q ? "找不到符合的紀錄。" : "這個月還沒有紀錄。按「新增一筆」開始登記，或到設定匯入現有 Excel。"}</div>`}
   </div>`;
 }
@@ -1471,7 +1486,12 @@ document.addEventListener("click", async ev => {
     if (!docs.length) toast(`這 ${left} 筆的細項開頭沒有日期，請逐筆填寫`);
     else await save(docs, `已判讀 ${docs.length} 筆${left ? `，還有 ${left} 筆要手動填` : ""}`);
   }
-  else if (act === "toggleFlag") { S.onlyFlagged = !S.onlyFlagged; render(); }
+  else if (act === "toggleFlag") { S.onlyFlagged = !S.onlyFlagged; S.picked.clear(); render(); }
+  else if (act === "confirmFlags") {
+    const now = new Date().toISOString();
+    const docs = liveEntries().filter(e => S.picked.has(e.id) && E.canConfirm(e)).map(e => E.confirmEntry(e, who(), now));
+    if (docs.length && await save(docs, `已確認 ${docs.length} 筆`)) { S.picked.clear(); render(); }
+  }
   else if (act === "bookTab") { S.bookTab = v; render(); }
   else if (act === "move") openMove(key);
   else if (act === "cancel") openCancel(key);
@@ -1527,6 +1547,17 @@ document.addEventListener("input", ev => {
 
 document.addEventListener("change", ev => {
   const el = ev.target;
+  if (el.classList?.contains("flag-pick")) {
+    if (el.checked) S.picked.add(el.value); else S.picked.delete(el.value);
+    render();
+    return;
+  }
+  if (el.id === "flag-all") {
+    const ids = [...document.querySelectorAll(".flag-pick")].map(x => x.value);
+    ids.forEach(id => (el.checked ? S.picked.add(id) : S.picked.delete(id)));
+    render();
+    return;
+  }
   if (el.id === "f-month") { S.month = el.value || S.month; S.onlyFlagged = false; render(); return; }
   if (el.id === "f-year") { S.year = +el.value; S.drill = null; render(); return; }
   if (el.id === "import-file" && el.files[0]) { startImport(el.files[0]); el.value = ""; return; }
