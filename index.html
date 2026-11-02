@@ -182,10 +182,29 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
   }
 
   /* ---------- 費用歸屬月份 ---------- */
+  const SALARY_LAST_DAY = 15;   // 每月 15 號以前發的薪資，算前一個月
+  const previousMonth = month => {
+    const [y, m] = month.split("-").map(Number);
+    return m === 1 ? `${y - 1}-12` : `${y}-${pad(m - 1)}`;
+  };
+
   function expenseMonth(e) {
     if (e.cancel) return ym(e.cancel.date);
     if (e.serviceDate) return ym(e.serviceDate);
-    return e.pnlMonth || ym(e.date);
+    if (e.pnlMonth) return e.pnlMonth;
+    if (e.category === "薪資" && e.date && +e.date.slice(8, 10) <= SALARY_LAST_DAY) return previousMonth(ym(e.date));
+    if (e.category === "勞健退") return insuranceMonth(e);
+    return ym(e.date);
+  }
+
+  /* 勞健保依細項寫的月份計算，例如 10 月繳的「08月勞保費」算 8 月；沒寫月份就算繳費月 */
+  function insuranceMonth(e) {
+    const paid = ym(e.date);
+    const hit = String(e.desc || "").match(/(?:^|\D)(\d{1,2})月/);
+    if (!hit || +hit[1] < 1 || +hit[1] > 12) return paid;
+    const year = +paid.slice(0, 4);
+    const same = `${year}-${pad(+hit[1])}`;
+    return same <= paid ? same : `${year - 1}-${pad(+hit[1])}`;
   }
 
   function categoryType(settings, name) {
@@ -984,15 +1003,15 @@ function monthSummary() {
 
 function viewLedger() {
   const sum = monthSummary();
-  const q = S.query.trim().toLowerCase();
   const settled = E.live(E.settle(S.entries, S.settings));
-  let rows = settled.filter(e => e.date.startsWith(S.month));
+  const q = S.query.trim().toLowerCase();
+  let rows = q ? settled : settled.filter(e => e.date.startsWith(S.month));
   const flagged = settled.filter(e => e.flags?.length);
   if (!flagged.length) S.onlyFlagged = false;
   const noDate = liveEntries().filter(E.reparseEntry).length;
   if (S.onlyFlagged) rows = flagged;
   if (q) rows = rows.filter(e => [e.desc, e.customer, e.brand, e.category, e.method, e.note].join(" ").toLowerCase().includes(q));
-  rows.sort((a, b) => a.date.localeCompare(b.date));
+  rows.sort((a, b) => (q ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)));
   const selectable = rows.filter(E.canConfirm);
   const pickedCount = selectable.filter(e => S.picked.has(e.id)).length;
   const body = rows.map(e => {
@@ -1002,7 +1021,7 @@ function viewLedger() {
       ${S.onlyFlagged ? `<td data-act="noop">${E.canConfirm(e)
         ? `<input type="checkbox" class="flag-pick" value="${esc(e.id)}"${S.picked.has(e.id) ? " checked" : ""} aria-label="選取 ${esc(e.desc)}">`
         : `<span class="small muted">先填</span>`}</td>` : ""}
-      <td class="num">${mmdd(e.date)}</td>
+      <td class="num">${q ? esc(e.date.replace(/-/g, "/")) : mmdd(e.date)}</td>
       <td>${esc(e.kind === "income" ? e.brand : e.kind === "expense" ? e.category : KIND_LABEL[e.kind])}</td>
       <td class="wide">${esc(e.desc)}${e.flags?.length ? ` <span class="pill warn">待確認</span>` : ""}${e.cancel ? ` <span class="pill bad">已取消</span>` : ""}<div class="small muted">${esc([e.advanceRepaid ? `含代墊款 ${money(e.advanceRepaid)}，薪資費用 ${money(e.amount - e.advanceRepaid)}` : "", ...(e.flags || [])].filter(Boolean).join("；"))}</div></td>
       <td class="num">${e.kind === "income" ? money(e.amount) : ""}</td>
@@ -1022,13 +1041,14 @@ function viewLedger() {
     <div class="row spread" style="margin-bottom:10px">
       <div class="ctrl">
         <input type="month" id="f-month" value="${esc(S.month)}" aria-label="月份">
-        <input type="search" id="f-query" placeholder="搜尋客人、細項" value="${esc(S.query)}" aria-label="搜尋">
+        <input type="search" id="f-query" placeholder="搜尋全部月份" value="${esc(S.query)}" aria-label="搜尋">
         ${flagged.length ? `<button class="btn tiny" data-act="toggleFlag">${S.onlyFlagged ? "看全部" : `待確認 ${flagged.length} 筆`}</button>` : ""}
         ${S.onlyFlagged && selectable.length ? `<button class="btn tiny primary" data-act="confirmFlags" id="confirm-flags"${pickedCount ? "" : " disabled"}>確認選取 ${pickedCount} 筆</button>` : ""}
         ${noDate ? `<button class="btn tiny" data-act="reparse" id="reparse">重新判讀 ${noDate} 筆收入月份</button>` : ""}
       </div>
       <button class="btn primary" data-act="add" id="add-entry">新增一筆</button>
     </div>
+    ${q && rows.length ? `<p class="small muted" style="margin:0 0 6px">搜尋全部月份，找到 ${rows.length} 筆，新的在前。</p>` : ""}
     ${rows.length ? `<div class="tablewrap"><table>
       <thead><tr>${S.onlyFlagged ? `<th><input type="checkbox" id="flag-all" aria-label="全選可確認的項目"${selectable.length && selectable.every(e => S.picked.has(e.id)) ? " checked" : ""}></th>` : ""}<th>日期</th><th>項目</th><th>細項</th><th class="num">收入</th><th class="num">支出</th><th>金流</th><th>損益月份</th></tr></thead>
       <tbody>${body}</tbody></table></div>` : `<div class="empty">${q ? "找不到符合的紀錄。" : "這個月還沒有紀錄。按「新增一筆」開始登記，或到設定匯入現有 Excel。"}</div>`}
@@ -1580,8 +1600,19 @@ document.addEventListener("click", async ev => {
   else if (act === "demoReset") { await store.reset(v === "1"); toast("示範資料已更新"); }
 });
 
+/* 注音等輸入法選字時不能重畫畫面，否則選字會被中斷，選完字才更新 */
+let composing = false;
+document.addEventListener("compositionstart", () => { composing = true; });
+document.addEventListener("compositionend", ev => { composing = false; handleInput(ev.target); });
 document.addEventListener("input", ev => {
-  const el = ev.target;
+  if (composing || ev.isComposing) {
+    if (ev.target.dataset?.k && draft) draft[ev.target.dataset.k] = ev.target.value;
+    return;
+  }
+  handleInput(ev.target);
+});
+
+function handleInput(el) {
   if (el.id === "f-query") { S.query = el.value; render(); return; }
   if (el.id === "f-book") { S.bookQuery = el.value; render(); return; }
   if (el.id === "x-refund" || el.id === "x-date" || el.classList.contains("pick")) { refreshCancelHint(); return; }
@@ -1602,7 +1633,7 @@ document.addEventListener("input", ev => {
     }
     refreshHint();
   }
-});
+}
 
 document.addEventListener("change", ev => {
   const el = ev.target;
