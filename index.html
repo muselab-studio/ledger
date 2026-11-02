@@ -461,12 +461,18 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
 
   const ITEM_START = /(改?(?:個人|雙人|[二三四五六七八九\d]人|兩套|三套|四套)|租棚|加購|補?訂金|尾款|全額)/;
 
+  /* 支援 10/15、10.15、10-15、10月15日，以及沒有分隔符號的 1015 */
+  const LEADING_DATE = /^(\d{1,2})[\/.\-月](\d{1,2})日?((?:[、,~～\-]\d{1,4})*)\s*(.*)$/;
+  const LEADING_MMDD = /^(\d{2})(\d{2})(?!\d)((?:[、,~～\-]\d{1,4})*)\s*(.*)$/;
+  const validDay = (month, day) => month >= 1 && month <= 12 && day >= 1 && day <= new Date(Date.UTC(2024, month, 0)).getUTCDate();
+
   function parseIncomeDesc(desc, cashDate) {
     const flags = [];
     let text = String(desc || "").trim();
     let serviceDate = "";
     let brandHint = "";
-    let m = text.match(/^(\d{1,2})\/(\d{1,2})((?:[、,]\d{1,2})*)\s*(.*)$/);
+    let m = text.match(LEADING_DATE) || text.match(LEADING_MMDD);
+    if (m && !validDay(+m[1], +m[2])) m = null;
     if (m) {
       serviceDate = inferDate(+m[1], +m[2], cashDate);
       text = m[4];
@@ -496,6 +502,26 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
     return { serviceDate, customer, payType, serviceItem, brandHint, flags };
   }
 
+  const NO_DATE_FLAG = "找不到服務日期，先列預收款";
+
+  /* 已匯入的紀錄用新的判讀規則再讀一次細項 */
+  function reparseEntry(e) {
+    if (e.kind !== "income" || e.deleted || !(e.flags || []).includes(NO_DATE_FLAG)) return null;
+    const p = parseIncomeDesc(e.desc, e.date);
+    if (!p.serviceDate) return null;
+    const flags = [...e.flags.filter(f => f !== NO_DATE_FLAG), ...p.flags];
+    const { flags: _old, ...rest } = e;
+    return {
+      ...rest,
+      serviceDate: p.serviceDate,
+      customer: p.customer || e.customer,
+      payType: p.payType === "其他" ? e.payType : p.payType,
+      serviceItem: p.serviceItem,
+      brand: e.brand === "其他" && p.brandHint ? p.brandHint : e.brand,
+      ...(flags.length ? { flags } : {}),
+    };
+  }
+
   function parseRow(row, settings) {
     const flags = [];
     const base = {
@@ -517,7 +543,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
         } else if (item !== "其他") flags.push(`項目「${item}」不是品牌，先歸其他`);
       }
       if (entry.payType === "其他" && !entry.customer) entry.customer = "";
-      if (!entry.serviceDate && entry.payType !== "儲值金" && entry.payType !== "其他") flags.push("找不到服務日期，先列預收款");
+      if (!entry.serviceDate && entry.payType !== "儲值金" && entry.payType !== "其他") flags.push(NO_DATE_FLAG);
     } else {
       const brand = brands.find(b => b !== "其他" && b.toLowerCase() === item.toLowerCase());
       const known = settings.categories.some(c => c.name === item);
@@ -693,7 +719,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
   root.LedgerEngine = {
     DEFAULT_SETTINGS, ADVANCE, UNFILLED, CANCEL_LINE, recognize, expenseMonth, categoryType, balancesAt, advanceOwed, monthEndOf,
     buildPnL, buildCash, bookings, storedValues, reschedule, cancelBooking, undoCancel, makeDesc, explain, inferDate,
-    parseIncomeDesc, parseRow, markSuspects, fingerprint, workbookPnL, workbookCash, ledgerRows, deferredList, live, ym,
+    parseIncomeDesc, parseRow, reparseEntry, NO_DATE_FLAG, markSuspects, fingerprint, workbookPnL, workbookCash, ledgerRows, deferredList, live, ym,
   };
   if (typeof module !== "undefined") module.exports = root.LedgerEngine;
 })(typeof window !== "undefined" ? window : globalThis);
@@ -903,6 +929,7 @@ function viewLedger() {
   let rows = liveEntries().filter(e => e.date.startsWith(S.month));
   const flagged = liveEntries().filter(e => e.flags?.length);
   if (!flagged.length) S.onlyFlagged = false;
+  const noDate = flagged.filter(e => e.flags.includes(E.NO_DATE_FLAG)).length;
   if (S.onlyFlagged) rows = flagged;
   if (q) rows = rows.filter(e => [e.desc, e.customer, e.brand, e.category, e.method, e.note].join(" ").toLowerCase().includes(q));
   rows.sort((a, b) => a.date.localeCompare(b.date));
@@ -932,6 +959,7 @@ function viewLedger() {
         <input type="month" id="f-month" value="${esc(S.month)}" aria-label="月份">
         <input type="search" id="f-query" placeholder="搜尋客人、細項" value="${esc(S.query)}" aria-label="搜尋">
         ${flagged.length ? `<button class="btn tiny" data-act="toggleFlag">${S.onlyFlagged ? "看全部" : `待確認 ${flagged.length} 筆`}</button>` : ""}
+        ${noDate ? `<button class="btn tiny" data-act="reparse" id="reparse">重新判讀 ${noDate} 筆服務日期</button>` : ""}
       </div>
       <button class="btn primary" data-act="add" id="add-entry">新增一筆</button>
     </div>
@@ -1436,6 +1464,13 @@ document.addEventListener("click", async ev => {
   if (act === "tab") { S.tab = v; S.drill = null; render(); }
   else if (act === "add") openForm(null);
   else if (act === "edit") { const e = S.entries.find(x => x.id === id); if (e) openForm(e); }
+  else if (act === "reparse") {
+    const pending = liveEntries().filter(e => e.flags?.includes(E.NO_DATE_FLAG));
+    const docs = pending.map(E.reparseEntry).filter(Boolean);
+    const left = pending.length - docs.length;
+    if (!docs.length) toast(`這 ${left} 筆的細項開頭沒有日期，請逐筆填寫`);
+    else await save(docs, `已判讀 ${docs.length} 筆${left ? `，還有 ${left} 筆要手動填` : ""}`);
+  }
   else if (act === "toggleFlag") { S.onlyFlagged = !S.onlyFlagged; render(); }
   else if (act === "bookTab") { S.bookTab = v; render(); }
   else if (act === "move") openMove(key);
