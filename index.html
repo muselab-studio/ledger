@@ -132,7 +132,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
 
   const DEFAULT_SETTINGS = {
     brands: ["如梭映像", "plus", "muse", "其他"],
-    payTypes: ["訂金", "尾款", "全額", "加購", "租棚", "儲值金", "其他"],
+    payTypes: ["訂金", "尾款", "全額", "加購", "租棚", "儲值金", "社群經營", "其他"],
     methods: ["現金", "轉帳", "LINEPAY", "刷卡0927", "轉帳0927", "代墊款"],
     advancers: ["居米", "嚕米"],
     categories: [
@@ -153,7 +153,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
     opening: { month: "", amount: 0 },
   };
 
-  const LINE_OF = { 訂金: "寫真服務", 尾款: "寫真服務", 全額: "寫真服務", 加購: "加購", 租棚: "租棚", 儲值金: "儲值服務", 其他: "其他收入" };
+  const LINE_OF = { 訂金: "寫真服務", 尾款: "寫真服務", 全額: "寫真服務", 加購: "加購", 租棚: "租棚", 儲值金: "儲值服務", 社群經營: "社群經營", 其他: "其他收入" };
   const CANCEL_LINE = "取消訂金收入";
   const UNFILLED = "未填";
   const ADVANCE = "代墊款";
@@ -464,6 +464,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
   /* 支援 10/15、10.15、10-15、10月15日，以及沒有分隔符號的 1015 */
   const LEADING_DATE = /^(\d{1,2})[\/.\-月](\d{1,2})日?((?:[、,~～\-]\d{1,4})*)\s*(.*)$/;
   const LEADING_MMDD = /^(\d{2})(\d{2})(?!\d)((?:[、,~～\-]\d{1,4})*)\s*(.*)$/;
+  const MONTH_INSIDE = /^(.+?)(?:(\d{1,2})[-~～、至到])?(\d{1,2})月(?!\d)(.*)$/;
   const validDay = (month, day) => month >= 1 && month <= 12 && day >= 1 && day <= new Date(Date.UTC(2024, month, 0)).getUTCDate();
 
   function parseIncomeDesc(desc, cashDate) {
@@ -471,6 +472,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
     let text = String(desc || "").trim();
     let serviceDate = "";
     let brandHint = "";
+    let nameBefore = "";
     let m = text.match(LEADING_DATE) || text.match(LEADING_MMDD);
     if (m && !validDay(+m[1], +m[2])) m = null;
     if (m) {
@@ -481,6 +483,12 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
       serviceDate = monthEndOf(inferDate(+m[1], 1, cashDate).slice(0, 7));
       text = m[2];
       flags.push("只有月份，先算在月底");
+    } else if ((m = text.match(MONTH_INSIDE)) && validDay(+(m[2] || m[3]), 1) && validDay(+m[3], 1)) {
+      /* 例如「戀愛大學7月社群經營費用」：月份寫在中間，整筆算該月 */
+      serviceDate = monthEndOf(inferDate(+(m[2] || m[3]), 1, cashDate).slice(0, 7));
+      nameBefore = m[1].replace(/\d{2,4}年$/, "").trim();
+      text = m[4];
+      if (m[2]) flags.push("跨多個月，先算在第一個月");
     }
     const brand = text.match(/plus|muse/i);
     if (brand) {
@@ -488,16 +496,18 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
       text = text.replace(brand[0], "");
     }
     const cut = text.search(ITEM_START);
-    const customer = (cut >= 0 ? text.slice(0, cut) : "").trim();
+    const customer = nameBefore || (cut >= 0 ? text.slice(0, cut) : "").trim();
     const rest = (cut >= 0 ? text.slice(cut) : text).trim();
     let payType = "全額", serviceItem = "";
     if (/租棚/.test(rest)) payType = "租棚";
     else if (/加購/.test(rest)) payType = "加購";
     else if (/訂金/.test(rest)) payType = "訂金";
     else if (/尾款/.test(rest)) payType = "尾款";
+    else if (/社群|代操|小編/.test(rest)) payType = "社群經營";
     else payType = "其他";
     if (payType === "租棚") serviceItem = "租棚";
     else if (payType === "加購") serviceItem = rest.replace(/.*加購/, "").trim();
+    else if (payType === "社群經營") serviceItem = rest.replace(/費用?$/, "").trim();
     else serviceItem = rest.replace(/補?訂金|尾款/g, "").trim();
     return { serviceDate, customer, payType, serviceItem, brandHint, flags };
   }
@@ -506,10 +516,11 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
 
   /* 已匯入的紀錄用新的判讀規則再讀一次細項 */
   function reparseEntry(e) {
-    if (e.kind !== "income" || e.deleted || !(e.flags || []).includes(NO_DATE_FLAG)) return null;
+    if (e.kind !== "income" || e.deleted || e.cancel || e.source !== "import") return null;
+    if (e.serviceDate || e.lines?.length || e.payType === "儲值金") return null;
     const p = parseIncomeDesc(e.desc, e.date);
     if (!p.serviceDate) return null;
-    const flags = [...e.flags.filter(f => f !== NO_DATE_FLAG), ...p.flags];
+    const flags = [...(e.flags || []).filter(f => f !== NO_DATE_FLAG && !f.startsWith("項目「")), ...p.flags];
     const { flags: _old, ...rest } = e;
     return {
       ...rest,
@@ -549,7 +560,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
         if (/儲值/.test(base.desc)) {
           entry.customer = item; entry.payType = "儲值金"; entry.serviceDate = "";
           flags.push("儲值金，先列預收款");
-        } else if (item !== "其他") flags.push(`項目「${item}」不是品牌，先歸其他`);
+        } else if (item !== "其他" && entry.payType !== "社群經營") flags.push(`項目「${item}」不是品牌，先歸其他`);
       }
       if (entry.payType === "其他" && !entry.customer) entry.customer = "";
       if (!entry.serviceDate && entry.payType !== "儲值金" && entry.payType !== "其他") flags.push(NO_DATE_FLAG);
@@ -789,7 +800,11 @@ const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${Stri
 const newId = () => `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 const mmdd = d => (d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : "");
 const clone = o => JSON.parse(JSON.stringify(o));
-const mergeSettings = s => ({ ...clone(E.DEFAULT_SETTINGS), ...(s || {}) });
+const mergeSettings = s => {
+  const merged = { ...clone(E.DEFAULT_SETTINGS), ...(s || {}) };
+  merged.payTypes = [...new Set([...E.DEFAULT_SETTINGS.payTypes, ...merged.payTypes])];
+  return merged;
+};
 
 const S = {
   tab: "ledger", month: todayStr().slice(0, 7), year: +todayStr().slice(0, 4), entries: [], settings: clone(E.DEFAULT_SETTINGS),
@@ -938,7 +953,7 @@ function viewLedger() {
   let rows = liveEntries().filter(e => e.date.startsWith(S.month));
   const flagged = liveEntries().filter(e => e.flags?.length);
   if (!flagged.length) S.onlyFlagged = false;
-  const noDate = flagged.filter(e => e.flags.includes(E.NO_DATE_FLAG)).length;
+  const noDate = liveEntries().filter(E.reparseEntry).length;
   if (S.onlyFlagged) rows = flagged;
   if (q) rows = rows.filter(e => [e.desc, e.customer, e.brand, e.category, e.method, e.note].join(" ").toLowerCase().includes(q));
   rows.sort((a, b) => a.date.localeCompare(b.date));
@@ -974,7 +989,7 @@ function viewLedger() {
         <input type="search" id="f-query" placeholder="搜尋客人、細項" value="${esc(S.query)}" aria-label="搜尋">
         ${flagged.length ? `<button class="btn tiny" data-act="toggleFlag">${S.onlyFlagged ? "看全部" : `待確認 ${flagged.length} 筆`}</button>` : ""}
         ${S.onlyFlagged && selectable.length ? `<button class="btn tiny primary" data-act="confirmFlags" id="confirm-flags"${pickedCount ? "" : " disabled"}>確認選取 ${pickedCount} 筆</button>` : ""}
-        ${noDate ? `<button class="btn tiny" data-act="reparse" id="reparse">重新判讀 ${noDate} 筆服務日期</button>` : ""}
+        ${noDate ? `<button class="btn tiny" data-act="reparse" id="reparse">重新判讀 ${noDate} 筆收入月份</button>` : ""}
       </div>
       <button class="btn primary" data-act="add" id="add-entry">新增一筆</button>
     </div>
@@ -1480,11 +1495,8 @@ document.addEventListener("click", async ev => {
   else if (act === "add") openForm(null);
   else if (act === "edit") { const e = S.entries.find(x => x.id === id); if (e) openForm(e); }
   else if (act === "reparse") {
-    const pending = liveEntries().filter(e => e.flags?.includes(E.NO_DATE_FLAG));
-    const docs = pending.map(E.reparseEntry).filter(Boolean);
-    const left = pending.length - docs.length;
-    if (!docs.length) toast(`這 ${left} 筆的細項開頭沒有日期，請逐筆填寫`);
-    else await save(docs, `已判讀 ${docs.length} 筆${left ? `，還有 ${left} 筆要手動填` : ""}`);
+    const docs = liveEntries().map(E.reparseEntry).filter(Boolean);
+    await save(docs, `已判讀 ${docs.length} 筆`);
   }
   else if (act === "toggleFlag") { S.onlyFlagged = !S.onlyFlagged; S.picked.clear(); render(); }
   else if (act === "confirmFlags") {
