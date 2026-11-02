@@ -1,0 +1,1583 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>如梭記帳</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* 版面沿用如梭打卡系統：同樣的暖灰底、赤陶色與 Noto Sans TC，數字欄一律等寬對齊 */
+:root{
+  --bg:#f6f3ee; --card:#ffffff; --ink:#2b2724; --muted:#736b63; --line:#e7e1d8;
+  --accent:#a95c40; --accent-ink:#fff; --soft:#f3e7e1;
+  --ok:#2f6f4c; --ok-soft:#e3f0e8; --warn:#8f6214; --warn-soft:#f7ecd6; --bad:#b4483e; --bad-soft:#f6e1de;
+  --shadow:0 1px 2px rgba(40,30,20,.05),0 6px 20px rgba(40,30,20,.06);
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#1b1917; --card:#252220; --ink:#efe9e3; --muted:#a39a90; --line:#3a3532;
+    --accent:#d58a6c; --accent-ink:#1b1917; --soft:#3a2b25;
+    --ok:#7cc29a; --ok-soft:#22362b; --warn:#e0b25e; --warn-soft:#3a3020; --bad:#e58a80; --bad-soft:#3d2523;
+    --shadow:none; color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#1b1917; --card:#252220; --ink:#efe9e3; --muted:#a39a90; --line:#3a3532;
+  --accent:#d58a6c; --accent-ink:#1b1917; --soft:#3a2b25;
+  --ok:#7cc29a; --ok-soft:#22362b; --warn:#e0b25e; --warn-soft:#3a3020; --bad:#e58a80; --bad-soft:#3d2523;
+  --shadow:none; color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Noto Sans TC",system-ui,sans-serif;font-size:15px;line-height:1.55}
+button,input,select{font:inherit;color:inherit}
+.wrap{max-width:1120px;margin:0 auto;padding-block:20px 56px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.narrow{max-width:420px;padding-top:56px}
+.banner{background:var(--warn-soft);color:var(--warn);font-size:13px;padding:8px 16px;text-align:center}
+.banner button{margin-left:8px}
+.top{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+h1{font-size:22px;margin:0;text-wrap:balance}
+h2{font-size:17px;margin:0 0 10px;text-wrap:balance}
+.muted{color:var(--muted)}
+.small{font-size:13px}
+.num{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px;box-shadow:var(--shadow);min-width:0}
+.stack{display:flex;flex-direction:column;gap:16px}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.spread{justify-content:space-between}
+.seg{display:flex;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:3px;gap:2px;overflow-x:auto}
+.seg button{flex:1 0 auto;border:0;background:transparent;padding:7px 12px;border-radius:8px;cursor:pointer;color:var(--muted);white-space:nowrap}
+.seg button.on{background:var(--card);color:var(--ink);font-weight:500;box-shadow:var(--shadow)}
+.tabs{margin-bottom:16px}
+label{display:block;font-size:13px;color:var(--muted);margin:0 0 4px}
+input,select{width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--card);min-width:0}
+input[type=checkbox]{width:auto;margin:0}
+input:focus-visible,select:focus-visible,button:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.btn{border:1px solid var(--line);background:var(--card);padding:8px 14px;border-radius:9px;cursor:pointer;white-space:nowrap}
+.btn:hover{border-color:var(--muted)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:500}
+.btn.danger{color:var(--bad)}
+.btn.tiny{padding:4px 10px;font-size:13px}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.link{border:0;background:none;color:var(--accent);cursor:pointer;padding:0;text-decoration:underline}
+.ctrl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ctrl input[type=month],.ctrl select{width:auto}
+.ctrl input[type=search]{width:200px;max-width:100%}
+.stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px;min-width:0}
+.stat span{display:block;font-size:13px;color:var(--muted)}
+.stat b{display:block;font-size:20px;font-variant-numeric:tabular-nums}
+.stat small{display:block;font-size:12px;color:var(--muted)}
+.neg{color:var(--bad)}
+.tablewrap{overflow-x:auto;margin:0 -18px;padding:0 18px}
+table{width:100%;border-collapse:collapse;font-variant-numeric:tabular-nums}
+th{font-size:13px;color:var(--muted);font-weight:500;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:8px;border-bottom:1px solid var(--line);vertical-align:top}
+tr:last-child td{border-bottom:0}
+tbody tr.click{cursor:pointer}
+tbody tr.click:hover td{background:var(--soft)}
+td.wide{min-width:190px}
+.pill{display:inline-block;padding:1px 9px;border-radius:99px;font-size:12px;font-weight:500;white-space:nowrap}
+.pill.ok{background:var(--ok-soft);color:var(--ok)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.soft{background:var(--soft);color:var(--accent)}
+.pill.off{background:var(--line);color:var(--muted)}
+.report th.mh button{all:unset;cursor:pointer;color:var(--accent);text-decoration:underline}
+.report th.mh.on button{font-weight:700}
+.report th,.report td{padding:6px 10px;border-bottom:1px solid var(--line)}
+.report th:not(:first-child){text-align:right}
+.report td:first-child,.report th:first-child{position:sticky;left:0;background:var(--card);min-width:170px;z-index:1}
+.report tr.head td{font-weight:700;padding-top:14px;border-bottom:0}
+.report tr.line td:first-child,.report tr.memo td:first-child,.report tr.balance td:first-child{padding-left:20px}
+.report tr.sub td{font-weight:500;background:var(--bg)}
+.report tr.total td{font-weight:700;background:var(--soft)}
+.booking{display:grid;grid-template-columns:92px minmax(0,1fr) auto;gap:4px 14px;padding:12px 0;border-bottom:1px solid var(--line);align-items:start}
+.booking:last-child{border-bottom:0}
+.booking .d{font-weight:500;font-variant-numeric:tabular-nums}
+.booking .pay{font-size:13px;color:var(--muted)}
+.booking .act{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--card);color:var(--ink);padding:0;width:min(620px,calc(100vw - 24px));max-height:calc(100dvh - 24px);box-shadow:var(--shadow)}
+dialog::backdrop{background:rgba(30,22,16,.45)}
+.mhead{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line)}
+.mhead h2{margin:0}
+.mbody{padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.mfoot{display:flex;justify-content:space-between;gap:8px;padding:12px 18px;border-top:1px solid var(--line);flex-wrap:wrap}
+.grid2{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.hint{background:var(--soft);color:var(--accent);padding:8px 12px;border-radius:9px;font-size:14px}
+.err{background:var(--bad-soft);color:var(--bad);padding:8px 12px;border-radius:9px;font-size:14px}
+.okmsg{background:var(--ok-soft);color:var(--ok);padding:8px 12px;border-radius:9px;font-size:14px}
+.check{display:flex;gap:8px;align-items:center;padding:6px 0;font-size:14px;color:var(--ink);margin:0;border-bottom:1px solid var(--line)}
+.empty{padding:28px 12px;text-align:center;color:var(--muted)}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:9px;font-size:14px;z-index:99;max-width:calc(100vw - 32px)}
+@media (max-width:760px){
+  .stats{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .grid2{grid-template-columns:minmax(0,1fr)}
+  .booking{grid-template-columns:minmax(0,1fr)}
+  .booking .act{justify-content:flex-start}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<dialog id="dlg" aria-label="登記視窗"></dialog>
+
+<script src="https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js"></script>
+<script>
+/* 記帳引擎：現金與損益的所有計算都在這裡，不碰畫面也不碰資料庫 */
+(function (root) {
+  "use strict";
+
+  const DEFAULT_SETTINGS = {
+    brands: ["如梭映像", "plus", "muse", "其他"],
+    payTypes: ["訂金", "尾款", "全額", "加購", "租棚", "儲值金", "其他"],
+    methods: ["現金", "轉帳", "LINEPAY", "刷卡0927", "轉帳0927", "代墊款"],
+    advancers: ["居米", "嚕米"],
+    categories: [
+      { name: "化妝師費用", type: "direct" },
+      { name: "攝影師抽成", type: "direct" },
+      { name: "發包費用", type: "direct" },
+      { name: "薪資", type: "opex" },
+      { name: "勞健退", type: "opex" },
+      { name: "房租", type: "opex" },
+      { name: "執行成本", type: "opex" },
+      { name: "雜項購置", type: "opex" },
+      { name: "廣告費", type: "opex" },
+      { name: "餐飲費", type: "opex" },
+      { name: "手續費", type: "opex" },
+      { name: "其他", type: "opex" },
+      { name: "業主往來", type: "none" },
+    ],
+    opening: { month: "", amount: 0 },
+  };
+
+  const LINE_OF = { 訂金: "寫真服務", 尾款: "寫真服務", 全額: "寫真服務", 加購: "加購", 租棚: "租棚", 儲值金: "儲值服務", 其他: "其他收入" };
+  const CANCEL_LINE = "取消訂金收入";
+  const UNFILLED = "未填";
+  const ADVANCE = "代墊款";
+  const MONTHS = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+
+  const ym = d => String(d || "").slice(0, 7);
+  const pad = n => String(n).padStart(2, "0");
+  const monthKey = (year, m) => `${year}-${pad(m)}`;
+  const live = entries => entries.filter(e => !e.deleted);
+  const isCashEntry = e => e.method !== ADVANCE;
+  const signedCash = e => (e.kind === "income" ? e.amount : -e.amount);
+
+  /* ---------- 收入認列：這筆錢算在哪一天 ---------- */
+  function recognize(e) {
+    if (e.kind === "refund") return [{ date: e.date, amount: -e.amount, line: CANCEL_LINE, brand: e.brand, entry: e }];
+    if (e.kind !== "income") return [];
+    if (e.cancel) return [{ date: e.cancel.date, amount: e.amount, line: CANCEL_LINE, brand: e.brand, entry: e }];
+    const line = LINE_OF[e.payType] || "其他收入";
+    if (e.lines && e.lines.length) {
+      return e.lines.map(l => ({ date: l.date, amount: l.amount, line, brand: e.brand, entry: e, item: l.item || "" }));
+    }
+    if (e.serviceDate) return [{ date: e.serviceDate, amount: e.amount, line, brand: e.brand, entry: e }];
+    if (e.payType === "其他") return [{ date: e.date, amount: e.amount, line, brand: e.brand, entry: e }];
+    return [];
+  }
+
+  /* ---------- 費用歸屬月份 ---------- */
+  function expenseMonth(e) {
+    if (e.cancel) return ym(e.cancel.date);
+    if (e.serviceDate) return ym(e.serviceDate);
+    return e.pnlMonth || ym(e.date);
+  }
+
+  function categoryType(settings, name) {
+    const c = settings.categories.find(x => x.name === name);
+    return c ? c.type : "opex";
+  }
+
+  /* ---------- 餘額 ---------- */
+  function balancesAt(entries, monthEnd) {
+    let deferred = 0, receivable = 0;
+    for (const e of live(entries)) {
+      if (e.kind !== "income" && e.kind !== "refund") continue;
+      const amount = signedCash(e);
+      const rec = recognize(e).filter(r => r.date <= monthEnd).reduce((s, r) => s + r.amount, 0);
+      if (e.date <= monthEnd) deferred += amount - rec;
+      else receivable += rec;
+    }
+    return { deferred, receivable };
+  }
+
+  function advanceOwed(entries, upTo) {
+    const owed = {};
+    for (const e of live(entries)) {
+      if (upTo && e.date > upTo) continue;
+      if (e.kind === "expense" && e.method === ADVANCE) owed[e.advancedBy || UNFILLED] = (owed[e.advancedBy || UNFILLED] || 0) + e.amount;
+      if (e.kind === "reimburse") owed[e.advancedBy || UNFILLED] = (owed[e.advancedBy || UNFILLED] || 0) - e.amount;
+    }
+    return owed;
+  }
+
+  const monthEndOf = key => {
+    const [y, m] = key.split("-").map(Number);
+    return `${key}-${pad(new Date(Date.UTC(y, m, 0)).getUTCDate())}`;
+  };
+
+  const blank = () => MONTHS.map(() => 0);
+  const addTo = (map, key, idx, amt) => { (map[key] = map[key] || blank())[idx] += amt; };
+  const sum = a => a.reduce((s, x) => s + x, 0);
+  const lineRow = (key, label, values) => ({ key, label, type: "line", values, total: sum(values) });
+
+  function sumRow(key, label, rows, type = "sub") {
+    const values = blank();
+    rows.forEach(r => r.values.forEach((v, i) => { values[i] += v; }));
+    return { key, label, type, values, total: sum(values), f: { sum: rows.map(r => r.key) } };
+  }
+
+  /* ---------- 損益表 ---------- */
+  function buildPnL(entries, settings, year) {
+    const prefix = `${year}-`;
+    const revenue = {}, cost = {}, opex = {}, details = MONTHS.map(() => []);
+    const cash = blank();
+    for (const e of live(entries)) {
+      if (e.kind === "income" || e.kind === "refund") {
+        if (e.date.startsWith(prefix)) cash[+e.date.slice(5, 7) - 1] += signedCash(e);
+        for (const r of recognize(e)) {
+          if (!r.date.startsWith(prefix)) continue;
+          const i = +r.date.slice(5, 7) - 1;
+          addTo(revenue, `${r.brand}｜${r.line}`, i, r.amount);
+          details[i].push(r);
+        }
+      } else if (e.kind === "expense") {
+        const type = categoryType(settings, e.category);
+        if (type === "none") continue;
+        const month = expenseMonth(e);
+        if (!month.startsWith(prefix)) continue;
+        const i = +month.slice(5, 7) - 1;
+        addTo(type === "direct" ? cost : opex, e.category, i, e.amount);
+        details[i].push({ date: e.date, amount: -e.amount, line: e.category, brand: e.brand, entry: e });
+      }
+    }
+    const brandRank = k => { const i = settings.brands.indexOf(k.split("｜")[0]); return i < 0 ? 99 : i; };
+    const lineRank = k => [...Object.values(LINE_OF), CANCEL_LINE].indexOf(k.split("｜")[1]);
+    const revKeys = Object.keys(revenue).sort((a, b) => brandRank(a) - brandRank(b) || lineRank(a) - lineRank(b));
+    const revRows = revKeys.map(k => lineRow(`rev:${k}`, k.replace("｜", " "), revenue[k]));
+    const catOrder = settings.categories.map(c => c.name);
+    const order = o => Object.keys(o).sort((a, b) => catOrder.indexOf(a) - catOrder.indexOf(b));
+    const costRows = order(cost).map(k => lineRow(`cost:${k}`, k, cost[k]));
+    const opexRows = order(opex).map(k => lineRow(`opex:${k}`, k, opex[k]));
+    const totalRev = sumRow("totalRev", "營業收入合計", revRows);
+    const totalCost = sumRow("totalCost", "營業成本合計", costRows);
+    const totalOpex = sumRow("totalOpex", "營業費用合計", opexRows);
+    const delta = (key, label, a, b) => ({
+      key, label, type: "total", values: a.values.map((v, i) => v - b.values[i]), total: a.total - b.total, f: { minus: [a.key, b.key] },
+    });
+    const gross = delta("gross", "毛利", totalRev, totalCost);
+    const net = delta("net", "營業淨利", gross, totalOpex);
+    const deferred = blank(), receivable = blank();
+    MONTHS.forEach((m, i) => {
+      const b = balancesAt(entries, monthEndOf(monthKey(year, m)));
+      deferred[i] = b.deferred;
+      receivable[i] = b.receivable;
+    });
+    const memo = (key, label, values, type) => ({ key, label, type, values, total: type === "memo" ? sum(values) : null });
+    return {
+      year, details,
+      rows: [
+        { type: "head", label: "營業收入" }, ...revRows, totalRev,
+        { type: "head", label: "營業成本" }, ...costRows, totalCost, gross,
+        { type: "head", label: "營業費用" }, ...opexRows, totalOpex, net,
+        { type: "head", label: "預收款對帳" },
+        memo("cashIn", "本月實收現金（扣退款）", cash, "memo"),
+        { ...memo("recog", "本月認列收入", totalRev.values, "memo") },
+        memo("deferred", "月底預收款餘額", deferred, "balance"),
+        memo("receivable", "月底已服務、之後才收的款", receivable, "balance"),
+      ],
+    };
+  }
+
+  /* ---------- 現金流量表 ---------- */
+  function buildCash(entries, settings, year) {
+    const prefix = `${year}-`;
+    const inflow = {}, outflow = {};
+    const advance = blank();
+    const methods = {};
+    const touch = m => (methods[m] = methods[m] || { in: blank(), out: blank() });
+    for (const e of live(entries)) {
+      if (!e.date.startsWith(prefix)) continue;
+      const i = +e.date.slice(5, 7) - 1;
+      const method = e.method || UNFILLED;
+      if (e.kind === "income") { addTo(inflow, e.brand || "其他", i, e.amount); touch(method).in[i] += e.amount; continue; }
+      if (!isCashEntry(e)) { advance[i] += e.amount; continue; }
+      const label = e.kind === "refund" ? "取消退款" : e.kind === "reimburse" ? "歸還代墊款" : e.category;
+      addTo(outflow, label, i, e.amount);
+      touch(method).out[i] += e.amount;
+    }
+    const brandOrder = k => { const i = settings.brands.indexOf(k); return i < 0 ? 99 : i; };
+    const inRows = Object.keys(inflow).sort((a, b) => brandOrder(a) - brandOrder(b)).map(k => lineRow(`in:${k}`, k, inflow[k]));
+    const catOrder = [...settings.categories.map(c => c.name), "取消退款", "歸還代墊款"];
+    const outRows = Object.keys(outflow).sort((a, b) => catOrder.indexOf(a) - catOrder.indexOf(b)).map(k => lineRow(`out:${k}`, k, outflow[k]));
+    const totalIn = sumRow("totalIn", "現金流入合計", inRows);
+    const totalOut = sumRow("totalOut", "現金流出合計", outRows);
+    const netValues = totalIn.values.map((v, i) => v - totalOut.values[i]);
+    const net = { key: "netCash", label: "本月淨現金流", type: "total", values: netValues, total: sum(netValues), f: { minus: ["totalIn", "totalOut"] } };
+    const rows = [
+      { type: "head", label: "現金流入" }, ...inRows, totalIn,
+      { type: "head", label: "現金流出" }, ...outRows, totalOut, net,
+    ];
+    const op = settings.opening || {};
+    if (op.month) {
+      const opening = blank(), ending = blank();
+      const all = live(entries).filter(e => e.kind !== "expense" || isCashEntry(e));
+      MONTHS.forEach((m, i) => {
+        const key = monthKey(year, m);
+        if (key < op.month) { opening[i] = null; ending[i] = null; return; }
+        const start = `${key}-01`, end = monthEndOf(key);
+        const flow = upto => all.filter(e => ym(e.date) >= op.month && e.date <= upto).reduce((s, e) => s + signedCash(e), 0);
+        opening[i] = op.amount + flow(`${start.slice(0, 8)}00`);
+        ending[i] = op.amount + flow(end);
+      });
+      rows.push({ type: "head", label: "現金餘額" });
+      rows.push({ key: "opening", label: "月初現金", type: "balance", values: opening, total: null });
+      rows.push({ key: "ending", label: "月底現金", type: "balance", values: ending, total: null });
+    }
+    const owed = MONTHS.map(m => sum(Object.values(advanceOwed(entries, monthEndOf(monthKey(year, m))))));
+    rows.push({ type: "head", label: "代墊款（尚未付現，不算在流出）" });
+    rows.push({ key: "adv", label: "本月新增代墊", type: "memo", values: advance, total: sum(advance) });
+    rows.push({ key: "owed", label: "月底未還代墊款", type: "balance", values: owed, total: null });
+    const methodRows = Object.keys(methods).sort((a, b) => settings.methods.indexOf(a) - settings.methods.indexOf(b)).map(k => {
+      const net = methods[k].in.map((v, i) => v - methods[k].out[i]);
+      return { label: k, in: methods[k].in, out: methods[k].out, net };
+    });
+    return { year, rows, methods: methodRows };
+  }
+
+  /* ---------- 預約：同一位客人＋同一天的收款自動歸在一起 ---------- */
+  function bookings(entries) {
+    const map = new Map();
+    for (const e of live(entries)) {
+      if (e.kind !== "income" || !e.serviceDate) continue;
+      const key = `${e.serviceDate}|${e.customer || ""}`;
+      if (!map.has(key)) map.set(key, { key, serviceDate: e.serviceDate, customer: e.customer || "", brand: e.brand, entries: [], received: 0, cancelled: null });
+      const b = map.get(key);
+      b.entries.push(e);
+      b.received += e.amount;
+      if (e.cancel) b.cancelled = e.cancel;
+    }
+    for (const e of live(entries)) {
+      if (e.kind === "refund" && map.has(e.bookingKey)) map.get(e.bookingKey).refunded = (map.get(e.bookingKey).refunded || 0) + e.amount;
+    }
+    return [...map.values()].sort((a, b) => a.serviceDate.localeCompare(b.serviceDate) || a.customer.localeCompare(b.customer));
+  }
+
+  function storedValues(entries) {
+    return live(entries).filter(e => e.kind === "income" && e.payType === "儲值金").map(e => {
+      const used = (e.lines || []).reduce((s, l) => s + l.amount, 0);
+      return { entry: e, used, left: e.amount - used };
+    });
+  }
+
+  function retitle(desc, oldDate, newDate) {
+    const mmdd = d => `${d.slice(5, 7)}/${d.slice(8, 10)}`;
+    return String(desc || "").replace(new RegExp(`^${mmdd(oldDate)}`), mmdd(newDate));
+  }
+
+  function reschedule(selected, newDate, who, now) {
+    return selected.map(e => ({
+      ...e,
+      serviceDate: newDate,
+      desc: retitle(e.desc, e.serviceDate, newDate),
+      history: [...(e.history || []), { at: now, by: who, action: "改期", from: e.serviceDate, to: newDate }],
+    }));
+  }
+
+  function cancelBooking(selected, opts) {
+    const { date, refund = 0, method = "", who = "", now = "", makeId } = opts;
+    const incomes = selected.filter(e => e.kind === "income");
+    const received = incomes.reduce((s, e) => s + e.amount, 0);
+    if (refund < 0 || refund > received) throw new Error(`退款金額要介於 0 到已收的 ${received} 元之間`);
+    const updates = selected.map(e => ({
+      ...e, cancel: { date },
+      history: [...(e.history || []), { at: now, by: who, action: "取消", date, refund }],
+    }));
+    if (refund > 0) {
+      const f = incomes[0];
+      updates.push({
+        id: makeId(), kind: "refund", date, amount: refund, brand: f.brand, customer: f.customer, method,
+        desc: `${f.serviceDate.slice(5, 7)}/${f.serviceDate.slice(8, 10)}${f.customer}取消退款`,
+        bookingKey: `${f.serviceDate}|${f.customer || ""}`, category: "", note: "",
+      });
+    }
+    return updates;
+  }
+
+  function undoCancel(entries, booking, who, now) {
+    const updates = booking.entries.map(e => {
+      const { cancel, ...rest } = e;
+      return { ...rest, cancel: null, history: [...(e.history || []), { at: now, by: who, action: "復原取消" }] };
+    });
+    for (const e of live(entries)) {
+      if (e.kind === "refund" && e.bookingKey === booking.key) updates.push({ ...e, deleted: true });
+      if (e.kind === "expense" && e.cancel && e.serviceDate === booking.serviceDate && (e.customer || "") === booking.customer) {
+        updates.push({ ...e, cancel: null });
+      }
+    }
+    return updates;
+  }
+
+  function makeDesc(e) {
+    const date = e.serviceDate ? `${e.serviceDate.slice(5, 7)}/${e.serviceDate.slice(8, 10)}` : "";
+    const item = e.serviceItem || "";
+    const type = e.payType === "全額" || item.includes(e.payType || " ") ? (e.payType === "全額" ? "全額" : "") : e.payType || "";
+    return `${date}${e.customer || ""}${item}${type}`;
+  }
+
+  /* 登記時的即時提示：這筆錢會進哪個月 */
+  function explain(e) {
+    if (e.kind === "income") {
+      const rec = recognize(e);
+      if (!e.date) return "";
+      if (!rec.length) return `先列入預收款，等實際使用時再認列收入。`;
+      const m = ym(rec[0].date);
+      const label = `${m.slice(0, 4)} 年 ${+m.slice(5)} 月`;
+      if (m > ym(e.date)) return `現金算 ${+e.date.slice(5, 7)} 月，收入算 ${label}，在那之前都列在預收款。`;
+      if (m < ym(e.date)) return `現金算 ${+e.date.slice(5, 7)} 月，收入算回 ${label}。`;
+      return `現金和收入都算 ${label}。`;
+    }
+    if (e.kind === "expense") {
+      const m = expenseMonth(e);
+      if (!m) return "";
+      return `費用算 ${m.slice(0, 4)} 年 ${+m.slice(5)} 月。${e.method === ADVANCE ? "公司尚未付現，先記為代墊款。" : ""}`;
+    }
+    return "";
+  }
+
+  /* ---------- 匯入現有 Excel ---------- */
+  function inferDate(month, day, cashDate) {
+    const y = +cashDate.slice(0, 4);
+    const cash = Date.UTC(y, +cashDate.slice(5, 7) - 1, +cashDate.slice(8, 10));
+    const best = [y - 1, y, y + 1]
+      .map(c => ({ c, gap: Math.abs(Date.UTC(c, month - 1, day) - cash) }))
+      .sort((a, b) => a.gap - b.gap)[0].c;
+    return `${best}-${pad(month)}-${pad(day)}`;
+  }
+
+  const ITEM_START = /(改?(?:個人|雙人|[二三四五六七八九\d]人|兩套|三套|四套)|租棚|加購|補?訂金|尾款|全額)/;
+
+  function parseIncomeDesc(desc, cashDate) {
+    const flags = [];
+    let text = String(desc || "").trim();
+    let serviceDate = "";
+    let brandHint = "";
+    let m = text.match(/^(\d{1,2})\/(\d{1,2})((?:[、,]\d{1,2})*)\s*(.*)$/);
+    if (m) {
+      serviceDate = inferDate(+m[1], +m[2], cashDate);
+      text = m[4];
+      if (m[3]) flags.push("跨多天，先算在第一天");
+    } else if ((m = text.match(/^(\d{1,2})月\s*(.*)$/))) {
+      serviceDate = monthEndOf(inferDate(+m[1], 1, cashDate).slice(0, 7));
+      text = m[2];
+      flags.push("只有月份，先算在月底");
+    }
+    const brand = text.match(/plus|muse/i);
+    if (brand) {
+      brandHint = brand[0].toLowerCase();
+      text = text.replace(brand[0], "");
+    }
+    const cut = text.search(ITEM_START);
+    const customer = (cut >= 0 ? text.slice(0, cut) : "").trim();
+    const rest = (cut >= 0 ? text.slice(cut) : text).trim();
+    let payType = "全額", serviceItem = "";
+    if (/租棚/.test(rest)) payType = "租棚";
+    else if (/加購/.test(rest)) payType = "加購";
+    else if (/訂金/.test(rest)) payType = "訂金";
+    else if (/尾款/.test(rest)) payType = "尾款";
+    else payType = "其他";
+    if (payType === "租棚") serviceItem = "租棚";
+    else if (payType === "加購") serviceItem = rest.replace(/.*加購/, "").trim();
+    else serviceItem = rest.replace(/補?訂金|尾款/g, "").trim();
+    return { serviceDate, customer, payType, serviceItem, brandHint, flags };
+  }
+
+  function parseRow(row, settings) {
+    const flags = [];
+    const base = {
+      date: row.date, desc: String(row.desc || "").trim(), method: row.method || "", note: row.note || "",
+      advancedBy: row.advancedBy || "", source: "import",
+    };
+    const brands = settings.brands;
+    const item = String(row.item || "").trim();
+    let entry;
+    if (row.income) {
+      const p = parseIncomeDesc(base.desc, row.date);
+      const brand = brands.find(b => b.toLowerCase() === item.toLowerCase());
+      entry = { ...base, kind: "income", amount: row.income, brand: brand || p.brandHint || "其他", customer: p.customer, payType: p.payType, serviceItem: p.serviceItem, serviceDate: p.serviceDate };
+      flags.push(...p.flags);
+      if (item && !brand) {
+        if (/儲值/.test(base.desc)) {
+          entry.customer = item; entry.payType = "儲值金"; entry.serviceDate = "";
+          flags.push("儲值金，先列預收款");
+        } else if (item !== "其他") flags.push(`項目「${item}」不是品牌，先歸其他`);
+      }
+      if (entry.payType === "其他" && !entry.customer) entry.customer = "";
+      if (!entry.serviceDate && entry.payType !== "儲值金" && entry.payType !== "其他") flags.push("找不到服務日期，先列預收款");
+    } else {
+      const brand = brands.find(b => b !== "其他" && b.toLowerCase() === item.toLowerCase());
+      const known = settings.categories.some(c => c.name === item);
+      entry = { ...base, kind: "expense", amount: row.expense, brand: brand || "", category: brand ? "雜項購置" : known ? item : "其他", serviceDate: "", customer: "" };
+      if (brand) flags.push("原本記在品牌下，先歸雜項購置");
+      else if (!known) flags.push(`科目「${item}」不在清單，先歸其他`);
+    }
+    if (!entry.method) flags.push("沒有金流方式");
+    return { entry, flags };
+  }
+
+  function markSuspects(parsed) {
+    const seen = new Map();
+    parsed.forEach(p => {
+      if (p.entry.kind !== "expense") return;
+      const k = `${p.entry.date}|${p.entry.amount}|${p.entry.category}`;
+      if (seen.has(k)) { p.flags.push("同日同金額，可能重複"); seen.get(k).flags.push("同日同金額，可能重複"); }
+      else seen.set(k, p);
+    });
+    return parsed;
+  }
+
+  const fingerprint = e => `${e.date}|${e.kind}|${e.amount}|${(e.desc || "").replace(/\s/g, "")}`;
+
+  /* ---------- Excel 輸出 ---------- */
+  const COLOR = { head: "FFF3E7E1", sub: "FFF6F3EE", total: "FFE9DED6", line: "FFE7E1D8" };
+  const MONEY = '#,##0;[Red]-#,##0;"-"';
+  const colName = n => { let s = ""; while (n > 0) { const r = (n - 1) % 26; s = String.fromCharCode(65 + r) + s; n = (n - r - 1) / 26; } return s; };
+
+  function writeReport(ws, title, rows, year) {
+    ws.addRow([title]).font = { bold: true, size: 14 };
+    ws.addRow([]);
+    const header = ws.addRow(["科目", ...MONTHS.map(m => `${year}/${pad(m)}`), "全年合計"]);
+    header.font = { bold: true };
+    header.alignment = { horizontal: "center" };
+    header.eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR.head } }; });
+    const rowOf = {};
+    let n = header.number;
+    rows.forEach(r => { n += 1; if (r.key) rowOf[r.key] = n; });
+    const formula = (r, col) => {
+      if (r.f && r.f.sum) {
+        if (!r.f.sum.length) return null;
+        const nums = r.f.sum.map(k => rowOf[k]);
+        return `SUM(${col}${Math.min(...nums)}:${col}${Math.max(...nums)})`;
+      }
+      if (r.f && r.f.minus) return `${col}${rowOf[r.f.minus[0]]}-${col}${rowOf[r.f.minus[1]]}`;
+      if (r.key === "recog") return `${col}${rowOf.totalRev}`;
+      return null;
+    };
+    rows.forEach(r => {
+      if (r.type === "head") {
+        const h = ws.addRow([r.label]);
+        h.font = { bold: true };
+        return;
+      }
+      const row = ws.addRow([r.label]);
+      r.values.forEach((v, i) => {
+        const col = colName(i + 2);
+        const f = formula(r, col);
+        row.getCell(i + 2).value = f ? { formula: f, result: v } : v;
+      });
+      if (r.total !== null && r.total !== undefined) {
+        row.getCell(14).value = { formula: formula(r, "N") || `SUM(B${row.number}:M${row.number})`, result: r.total };
+      }
+      for (let c = 2; c <= 14; c++) row.getCell(c).numFmt = MONEY;
+      if (r.type === "line" || r.type === "memo" || r.type === "balance") row.getCell(1).alignment = { indent: 1 };
+      if (r.type === "sub" || r.type === "total") {
+        row.font = { bold: true };
+        row.eachCell({ includeEmpty: true }, c => {
+          c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: r.type === "total" ? COLOR.total : COLOR.sub } };
+          c.border = { top: { style: "thin", color: { argb: COLOR.line } } };
+        });
+      }
+    });
+    ws.getColumn(1).width = 28;
+    for (let c = 2; c <= 14; c++) ws.getColumn(c).width = 11;
+    ws.views = [{ state: "frozen", xSplit: 1, ySplit: header.number }];
+  }
+
+  function writeTable(ws, columns, rows) {
+    const header = ws.addRow(columns.map(c => c.label));
+    header.font = { bold: true };
+    header.eachCell(c => { c.fill = { type: "pattern", pattern: "solid", fgColor: { argb: COLOR.head } }; });
+    rows.forEach(r => ws.addRow(columns.map(c => r[c.key] === undefined ? "" : r[c.key])));
+    columns.forEach((c, i) => {
+      const col = ws.getColumn(i + 1);
+      col.width = c.width || 12;
+      if (c.money) col.numFmt = "#,##0";
+    });
+    ws.views = [{ state: "frozen", ySplit: 1 }];
+    ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: columns.length } };
+  }
+
+  const pnlMonthOf = e => {
+    if (e.kind === "expense") return expenseMonth(e);
+    const r = recognize(e);
+    if (e.kind === "income" && !r.length) return "預收款";
+    if (e.kind === "reimburse") return "不列損益";
+    return [...new Set(r.map(x => ym(x.date)))].join("、");
+  };
+
+  function ledgerRows(entries, year, settings) {
+    return live(entries).filter(e => !year || e.date.startsWith(`${year}-`)).sort((a, b) => a.date.localeCompare(b.date)).map(e => ({
+      date: e.date,
+      item: e.kind === "expense" ? e.category : e.kind === "income" ? e.brand : e.kind === "refund" ? "取消退款" : "歸還代墊款",
+      desc: e.desc,
+      income: e.kind === "income" ? e.amount : "",
+      expense: e.kind === "income" ? "" : e.amount,
+      method: e.method || "",
+      advancedBy: e.advancedBy || "",
+      note: e.note || "",
+      serviceDate: e.serviceDate || "",
+      pnlMonth: e.kind === "expense" && categoryType(settings, e.category) === "none" ? "不列損益" : pnlMonthOf(e),
+    }));
+  }
+
+  function workbookPnL(ExcelJS, entries, settings, year) {
+    const wb = new ExcelJS.Workbook();
+    const report = buildPnL(entries, settings, year);
+    writeReport(wb.addWorksheet("損益表"), `${year} 年損益表`, report.rows, year);
+    const lines = report.details.flat().filter(d => d.entry.kind !== "expense").sort((a, b) => a.date.localeCompare(b.date)).map(d => ({
+      month: ym(d.date), date: d.date, brand: d.brand, customer: d.entry.customer || "", line: d.line, desc: d.entry.desc,
+      amount: d.amount, cashDate: d.entry.date, method: d.entry.method || "",
+    }));
+    writeTable(wb.addWorksheet("收入明細"), [
+      { key: "month", label: "損益月份", width: 10 }, { key: "date", label: "認列日期" }, { key: "brand", label: "品牌", width: 10 },
+      { key: "customer", label: "客人", width: 12 }, { key: "line", label: "收入類別", width: 14 }, { key: "desc", label: "細項", width: 30 },
+      { key: "amount", label: "金額", money: true, width: 10 }, { key: "cashDate", label: "入帳日" }, { key: "method", label: "金流方式" },
+    ], lines);
+    const costs = report.details.flat().filter(d => d.entry.kind === "expense").sort((a, b) => a.date.localeCompare(b.date)).map(d => ({
+      month: expenseMonth(d.entry), date: d.date, category: d.line, brand: d.brand || "", desc: d.entry.desc, amount: -d.amount, method: d.entry.method || "",
+    }));
+    writeTable(wb.addWorksheet("費用明細"), [
+      { key: "month", label: "損益月份", width: 10 }, { key: "date", label: "付款日" }, { key: "category", label: "科目", width: 12 },
+      { key: "brand", label: "品牌", width: 10 }, { key: "desc", label: "細項", width: 30 }, { key: "amount", label: "金額", money: true, width: 10 }, { key: "method", label: "金流方式" },
+    ], costs);
+    writeTable(wb.addWorksheet("預收款明細"), [
+      { key: "cashDate", label: "入帳日" }, { key: "serviceDate", label: "服務日期" }, { key: "brand", label: "品牌", width: 10 }, { key: "customer", label: "客人", width: 12 },
+      { key: "desc", label: "細項", width: 30 }, { key: "amount", label: "預收金額", money: true, width: 10 },
+    ], deferredList(entries, `${year}-12-31`));
+    return wb;
+  }
+
+  function deferredList(entries, asOf) {
+    const out = [];
+    for (const e of live(entries)) {
+      if (e.kind !== "income" || e.date > asOf) continue;
+      const left = e.amount - recognize(e).filter(r => r.date <= asOf).reduce((s, r) => s + r.amount, 0);
+      if (left) out.push({ cashDate: e.date, serviceDate: e.serviceDate || "未排定", brand: e.brand, customer: e.customer || "", desc: e.desc, amount: left });
+    }
+    return out.sort((a, b) => a.serviceDate.localeCompare(b.serviceDate));
+  }
+
+  function workbookCash(ExcelJS, entries, settings, year) {
+    const wb = new ExcelJS.Workbook();
+    const report = buildCash(entries, settings, year);
+    writeReport(wb.addWorksheet("現金流量表"), `${year} 年現金流量表`, report.rows, year);
+    const flat = [];
+    report.methods.forEach(m => {
+      flat.push({ key: `m:${m.label}:in`, label: `${m.label} 收入`, type: "line", values: m.in, total: sum(m.in) });
+      flat.push({ key: `m:${m.label}:out`, label: `${m.label} 支出`, type: "line", values: m.out, total: sum(m.out) });
+    });
+    writeReport(wb.addWorksheet("金流方式"), `${year} 年各金流方式收支`, flat, year);
+    writeTable(wb.addWorksheet("流水帳"), [
+      { key: "date", label: "日期" }, { key: "item", label: "項目", width: 11 }, { key: "desc", label: "細項", width: 30 },
+      { key: "income", label: "收入", money: true, width: 10 }, { key: "expense", label: "支出", money: true, width: 10 },
+      { key: "method", label: "金流方式" }, { key: "advancedBy", label: "代墊款人", width: 9 }, { key: "note", label: "備註", width: 16 },
+      { key: "serviceDate", label: "服務日期" }, { key: "pnlMonth", label: "損益月份", width: 12 },
+    ], ledgerRows(entries, year, settings));
+    return wb;
+  }
+
+  root.LedgerEngine = {
+    DEFAULT_SETTINGS, ADVANCE, UNFILLED, CANCEL_LINE, recognize, expenseMonth, categoryType, balancesAt, advanceOwed, monthEndOf,
+    buildPnL, buildCash, bookings, storedValues, reschedule, cancelBooking, undoCancel, makeDesc, explain, inferDate,
+    parseIncomeDesc, parseRow, markSuspects, fingerprint, workbookPnL, workbookCash, ledgerRows, deferredList, live, ym,
+  };
+  if (typeof module !== "undefined") module.exports = root.LedgerEngine;
+})(typeof window !== "undefined" ? window : globalThis);
+
+/* 示範模式用的虛構資料，客人和金額都不是真的 */
+function sampleEntries() {
+  const income = (id, date, brand, customer, serviceItem, payType, serviceDate, amount, method, extra = {}) => {
+    const e = { id, kind: "income", date, brand, customer, serviceItem, payType, serviceDate, amount, method, note: "", ...extra };
+    e.desc = LedgerEngine.makeDesc(e);
+    return e;
+  };
+  const expense = (id, date, category, desc, amount, method, extra = {}) => ({ id, kind: "expense", date, category, desc, amount, method, brand: "", note: "", ...extra });
+  const rows = [
+    income("s1", "2026-09-20", "如梭映像", "範例小安", "個人", "訂金", "2026-10-08", 3000, "轉帳"),
+    income("s2", "2026-10-08", "如梭映像", "範例小安", "個人", "尾款", "2026-10-08", 5790, "LINEPAY"),
+    income("s3", "2026-10-03", "如梭映像", "範例阿凱", "雙人", "訂金", "2026-12-12", 4000, "轉帳"),
+    income("s4", "2026-10-05", "plus", "範例小圓", "兩套", "訂金", "2026-11-14", 5000, "LINEPAY"),
+    income("s5", "2026-10-06", "muse", "範例米娜", "", "訂金", "2026-11-26", 1000, "轉帳"),
+    income("s6", "2026-10-10", "如梭映像", "範例佩佩", "個人", "訂金", "2026-10-22", 3000, "轉帳"),
+    income("s7", "2026-10-22", "如梭映像", "範例佩佩", "個人", "尾款", "2026-10-22", 5990, "現金"),
+    income("s8", "2026-10-22", "如梭映像", "範例佩佩", "精修", "加購", "2026-10-22", 1200, "現金"),
+    income("s9", "2026-10-12", "如梭映像", "範例攝影師", "", "租棚", "2026-10-12", 1800, "轉帳"),
+    income("s10", "2026-10-15", "如梭映像", "範例小樹", "個人", "訂金", "2027-01-16", 3000, "轉帳"),
+    income("s11", "2026-10-18", "其他", "範例儲值客", "", "儲值金", "", 30000, "轉帳", { lines: [{ date: "2026-10-28", amount: 6000, item: "第一次拍攝" }] }),
+    income("s12", "2026-10-19", "如梭映像", "範例小蝶", "個人", "訂金", "2026-11-05", 3000, "LINEPAY", { cancel: { date: "2026-10-30" } }),
+    expense("s13", "2026-10-05", "薪資", "範例員工薪資", 42000, "轉帳"),
+    expense("s14", "2026-10-05", "房租", "10月房租", 38000, "轉帳"),
+    expense("s15", "2026-10-22", "化妝師費用", "範例佩佩化妝", 1500, "轉帳", { customer: "範例佩佩", serviceDate: "2026-10-22" }),
+    expense("s16", "2026-10-12", "化妝師費用", "範例阿凱化妝訂金", 800, "轉帳", { customer: "範例阿凱", serviceDate: "2026-12-12" }),
+    expense("s17", "2026-10-14", "雜項購置", "攝影燈材", 6800, "代墊款", { advancedBy: "範例同事" }),
+    expense("s18", "2026-10-16", "廣告費", "社群廣告", 2500, "刷卡0927"),
+    { id: "s19", kind: "reimburse", date: "2026-10-28", amount: 3000, method: "轉帳", advancedBy: "範例同事", desc: "歸還範例同事代墊款", note: "" },
+  ];
+  return rows;
+}
+</script>
+<script type="module">
+/* ============================================================
+   設定區
+   1. 把 Firebase 專案設定貼到 FIREBASE_CONFIG（見 README）
+   2. 留 null 會進入「示範模式」，資料只存在目前這台瀏覽器
+   ============================================================ */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyD4NToEn4TgLUladlbITyoT2eUkwacVvmg",
+  authDomain: "timeflies-ledger.firebaseapp.com",
+  projectId: "timeflies-ledger",
+  storageBucket: "timeflies-ledger.firebasestorage.app",
+  messagingSenderId: "384966239215",
+  appId: "1:384966239215:web:8115cb23387266f1eb8c1a"
+};
+const STUDIO_NAME = "如梭映像";
+
+const E = window.LedgerEngine;
+const KIND_LABEL = { income: "收入", expense: "支出", refund: "退款", reimburse: "歸還代墊" };
+const money = n => (n === null || n === undefined ? "" : Math.round(n).toLocaleString("zh-TW"));
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const todayStr = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+const newId = () => `e${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+const mmdd = d => (d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : "");
+const clone = o => JSON.parse(JSON.stringify(o));
+const mergeSettings = s => ({ ...clone(E.DEFAULT_SETTINGS), ...(s || {}) });
+
+const S = {
+  tab: "ledger", month: todayStr().slice(0, 7), year: +todayStr().slice(0, 4), entries: [], settings: clone(E.DEFAULT_SETTINGS),
+  me: null, ready: false, loaded: false, accessError: "", loginMsg: "", query: "", onlyFlagged: false, bookTab: "upcoming", bookQuery: "", drill: null, importState: null,
+};
+let store = null;
+let draft = null;
+let modal = null;
+const app = document.getElementById("app");
+const dlg = document.getElementById("dlg");
+
+/* ---------- 資料存取：示範模式 ---------- */
+function makeDemoStore() {
+  const KEY = "timeflies-ledger-demo";
+  const read = () => { try { return JSON.parse(localStorage.getItem(KEY)) || null; } catch { return null; } };
+  const write = d => { try { localStorage.setItem(KEY, JSON.stringify(d)); } catch { /* 這個瀏覽器不能存，資料只留在這次開啟的畫面 */ } };
+  let data = read() || { entries: sampleEntries(), settings: null };
+  let notify = () => {};
+  const push = () => { write(data); notify(data.entries, data.settings); };
+  return {
+    demo: true,
+    start(onUser) { onUser({ name: "示範使用者" }); },
+    subscribe(cb) { notify = cb; cb(data.entries, data.settings); },
+    async signIn() {},
+    async signOut() {},
+    async put(docs) {
+      for (const d of docs) {
+        const i = data.entries.findIndex(e => e.id === d.id);
+        if (i >= 0) data.entries[i] = d; else data.entries.push(d);
+      }
+      push();
+    },
+    async saveSettings(s) { data.settings = s; push(); },
+    async reset(withSample) { data = { entries: withSample ? sampleEntries() : [], settings: null }; push(); },
+  };
+}
+
+/* ---------- 資料存取：正式模式（Firebase） ---------- */
+async function makeFirebaseStore(cfg) {
+  const V = "10.12.2";
+  const [{ initializeApp }, A, F] = await Promise.all([
+    import(`https://www.gstatic.com/firebasejs/${V}/firebase-app.js`),
+    import(`https://www.gstatic.com/firebasejs/${V}/firebase-auth.js`),
+    import(`https://www.gstatic.com/firebasejs/${V}/firebase-firestore.js`),
+  ]);
+  const fb = initializeApp(cfg);
+  const auth = A.getAuth(fb);
+  const db = F.getFirestore(fb);
+  const entriesCol = F.collection(db, "entries");
+  const settingsRef = F.doc(db, "config", "settings");
+  const stops = [];
+  const mapErr = e => {
+    const c = e?.code || "";
+    if (c.includes("invalid-credential") || c.includes("wrong-password") || c.includes("user-not-found") || c.includes("invalid-email")) return new Error("信箱或密碼不對");
+    if (c.includes("too-many-requests")) return new Error("嘗試太多次，請稍後再試");
+    if (c.includes("permission-denied")) return new Error("這個帳號沒有記帳權限，請把帳號 UID 加進 Firestore 規則");
+    return e;
+  };
+  return {
+    demo: false,
+    start(onUser) { A.onAuthStateChanged(auth, u => onUser(u ? { name: u.email, uid: u.uid } : null)); },
+    subscribe(cb, onErr) {
+      stops.forEach(s => s());
+      stops.length = 0;
+      let entries = [], settings = null, gotE = false, gotS = false;
+      const emit = () => { if (gotE && gotS) cb(entries, settings); };
+      stops.push(F.onSnapshot(entriesCol, s => { entries = s.docs.map(d => ({ ...d.data(), id: d.id })); gotE = true; emit(); }, e => onErr(mapErr(e))));
+      stops.push(F.onSnapshot(settingsRef, s => { settings = s.exists() ? s.data() : null; gotS = true; emit(); }, e => onErr(mapErr(e))));
+    },
+    async signIn(email, password) {
+      try { await A.signInWithEmailAndPassword(auth, email, password); } catch (e) { throw mapErr(e); }
+    },
+    async signOut() { stops.forEach(s => s()); stops.length = 0; await A.signOut(auth); },
+    async put(docs) {
+      const who = auth.currentUser?.email || "";
+      try {
+        for (let i = 0; i < docs.length; i += 400) {
+          const batch = F.writeBatch(db);
+          docs.slice(i, i + 400).forEach(d => {
+            const { id, ...rest } = clone(d);
+            batch.set(F.doc(entriesCol, id), { ...rest, updatedBy: who, updatedAt: new Date().toISOString() });
+          });
+          await batch.commit();
+        }
+      } catch (e) { throw mapErr(e); }
+    },
+    async saveSettings(s) {
+      try { await F.setDoc(settingsRef, clone(s)); } catch (e) { throw mapErr(e); }
+    },
+  };
+}
+
+/* ---------- 小工具 ---------- */
+function toast(text) {
+  document.querySelectorAll(".toast").forEach(t => t.remove());
+  const t = document.createElement("div");
+  t.className = "toast"; t.textContent = text; t.setAttribute("role", "status");
+  document.body.append(t);
+  setTimeout(() => t.remove(), 2600);
+}
+const who = () => S.me?.name || "";
+const opt = (list, cur, blank) => `${blank !== undefined ? `<option value="">${esc(blank)}</option>` : ""}${list.map(v => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(v)}</option>`).join("")}`;
+const liveEntries = () => E.live(S.entries);
+const signed = n => (n ? `<span class="${n < 0 ? "neg" : ""}">${money(n)}</span>` : `<span class="muted">–</span>`);
+
+async function save(docs, message) {
+  try { await store.put(docs); if (message) toast(message); return true; }
+  catch (e) { toast(e.message || "存檔失敗，請再試一次"); return false; }
+}
+
+async function saveFile(filename, buffer) {
+  try {
+    if (window.claude?.use) {
+      const downloads = await window.claude.use("downloads");
+      if (downloads) { await downloads.save({ filename, data: buffer }); toast(`已下載 ${filename}`); return; }
+    }
+    const url = URL.createObjectURL(new Blob([buffer], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = filename; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+    toast(`已下載 ${filename}`);
+  } catch (e) {
+    if (e?.code !== "declined") toast("下載沒有完成，請再試一次");
+  }
+}
+
+async function download(type) {
+  if (!window.ExcelJS) { toast("Excel 工具還沒載入，請確認網路後重新整理"); return; }
+  const wb = type === "pnl" ? E.workbookPnL(ExcelJS, S.entries, S.settings, S.year) : E.workbookCash(ExcelJS, S.entries, S.settings, S.year);
+  await saveFile(`${STUDIO_NAME}_${type === "pnl" ? "損益表" : "現金流量表"}_${S.year}.xlsx`, await wb.xlsx.writeBuffer());
+}
+
+/* ---------- 流水帳 ---------- */
+function monthSummary() {
+  const y = +S.month.slice(0, 4), i = +S.month.slice(5, 7) - 1;
+  const pnl = E.buildPnL(S.entries, S.settings, y);
+  const cash = E.buildCash(S.entries, S.settings, y);
+  const of = (r, k) => r.rows.find(x => x.key === k).values[i];
+  const owed = Object.values(E.advanceOwed(S.entries)).reduce((s, x) => s + x, 0);
+  return { cash: of(cash, "netCash"), net: of(pnl, "net"), revenue: of(pnl, "totalRev"), deferred: of(pnl, "deferred"), owed };
+}
+
+function viewLedger() {
+  const sum = monthSummary();
+  const q = S.query.trim().toLowerCase();
+  let rows = liveEntries().filter(e => e.date.startsWith(S.month));
+  const flagged = liveEntries().filter(e => e.flags?.length);
+  if (!flagged.length) S.onlyFlagged = false;
+  if (S.onlyFlagged) rows = flagged;
+  if (q) rows = rows.filter(e => [e.desc, e.customer, e.brand, e.category, e.method, e.note].join(" ").toLowerCase().includes(q));
+  rows.sort((a, b) => a.date.localeCompare(b.date));
+  const body = rows.map(e => {
+    const pnl = E.ledgerRows([e], null, S.settings)[0].pnlMonth;
+    const shifted = pnl && pnl !== E.ym(e.date);
+    return `<tr class="click" data-act="edit" data-id="${esc(e.id)}">
+      <td class="num">${mmdd(e.date)}</td>
+      <td>${esc(e.kind === "income" ? e.brand : e.kind === "expense" ? e.category : KIND_LABEL[e.kind])}</td>
+      <td class="wide">${esc(e.desc)}${e.flags?.length ? ` <span class="pill warn">待確認</span>` : ""}${e.cancel ? ` <span class="pill bad">已取消</span>` : ""}<div class="small muted">${esc((e.flags || []).join("；"))}</div></td>
+      <td class="num">${e.kind === "income" ? money(e.amount) : ""}</td>
+      <td class="num">${e.kind !== "income" ? money(e.amount) : ""}</td>
+      <td>${e.method ? esc(e.method) : `<span class="pill warn">未填</span>`}${e.advancedBy ? `<div class="small muted">${esc(e.advancedBy)}</div>` : ""}</td>
+      <td>${shifted ? `<span class="pill soft">${esc(pnl.replace(/\d\d(\d\d)-(\d\d)/g, "$1/$2"))}</span>` : `<span class="muted small">同月</span>`}</td>
+    </tr>`;
+  }).join("");
+  return `
+  <div class="stats">
+    <div class="stat"><span>本月現金淨流入</span><b class="${sum.cash < 0 ? "neg" : ""}">${money(sum.cash)}</b><small>實際進出的錢</small></div>
+    <div class="stat"><span>本月損益</span><b class="${sum.net < 0 ? "neg" : ""}">${money(sum.net)}</b><small>認列收入 ${money(sum.revenue)}</small></div>
+    <div class="stat"><span>月底預收款</span><b>${money(sum.deferred)}</b><small>已收、服務還沒做</small></div>
+    <div class="stat"><span>未還代墊款</span><b>${money(sum.owed)}</b><small>全部代墊人合計</small></div>
+  </div>
+  <div class="card">
+    <div class="row spread" style="margin-bottom:10px">
+      <div class="ctrl">
+        <input type="month" id="f-month" value="${esc(S.month)}" aria-label="月份">
+        <input type="search" id="f-query" placeholder="搜尋客人、細項" value="${esc(S.query)}" aria-label="搜尋">
+        ${flagged.length ? `<button class="btn tiny" data-act="toggleFlag">${S.onlyFlagged ? "看全部" : `待確認 ${flagged.length} 筆`}</button>` : ""}
+      </div>
+      <button class="btn primary" data-act="add" id="add-entry">新增一筆</button>
+    </div>
+    ${rows.length ? `<div class="tablewrap"><table>
+      <thead><tr><th>日期</th><th>項目</th><th>細項</th><th class="num">收入</th><th class="num">支出</th><th>金流</th><th>損益月份</th></tr></thead>
+      <tbody>${body}</tbody></table></div>` : `<div class="empty">${q ? "找不到符合的紀錄。" : "這個月還沒有紀錄。按「新增一筆」開始登記，或到設定匯入現有 Excel。"}</div>`}
+  </div>`;
+}
+
+/* ---------- 預約 ---------- */
+function bookingStatus(b) {
+  if (b.cancelled) return b.refunded ? `<span class="pill bad">取消，退 ${money(b.refunded)}</span>` : `<span class="pill bad">取消，訂金不退</span>`;
+  if (b.serviceDate > todayStr()) return `<span class="pill soft">未服務</span>`;
+  return `<span class="pill ok">已服務</span>`;
+}
+
+function viewBookings() {
+  const seg = [["upcoming", "未服務"], ["done", "已服務"], ["cancelled", "已取消"], ["stored", "儲值金"]];
+  const today = todayStr();
+  const q = S.bookQuery.trim().toLowerCase();
+  let body;
+  if (S.bookTab === "stored") {
+    const list = E.storedValues(S.entries);
+    body = list.length ? list.map(s => `
+      <div class="booking">
+        <div class="d">${mmdd(s.entry.date)}</div>
+        <div><b>${esc(s.entry.customer)}</b> <span class="pill ${s.left ? "soft" : "off"}">餘額 ${money(s.left)}</span>
+          <div class="pay">儲值 ${money(s.entry.amount)}，已使用 ${money(s.used)}${(s.entry.lines || []).map(l => `｜${mmdd(l.date)} ${money(l.amount)}${l.item ? ` ${esc(l.item)}` : ""}`).join("")}</div></div>
+        <div class="act"><button class="btn tiny" data-act="useStored" data-id="${esc(s.entry.id)}">記一次使用</button></div>
+      </div>`).join("") : `<div class="empty">目前沒有儲值金。登記收入時類型選「儲值金」就會出現在這裡。</div>`;
+  } else {
+    let list = E.bookings(S.entries);
+    if (S.bookTab === "cancelled") list = list.filter(b => b.cancelled);
+    else if (S.bookTab === "upcoming") list = list.filter(b => !b.cancelled && b.serviceDate > today);
+    else list = list.filter(b => !b.cancelled && b.serviceDate <= today).reverse();
+    if (q) list = list.filter(b => b.customer.toLowerCase().includes(q));
+    body = list.length ? list.map(b => `
+      <div class="booking">
+        <div class="d">${esc(b.serviceDate)}</div>
+        <div><b>${esc(b.customer || "未填客人")}</b> <span class="muted small">${esc(b.brand)}</span> ${bookingStatus(b)}
+          ${b.entries.some(e => e.history?.some(h => h.action === "改期")) ? `<span class="pill off">已改期</span>` : ""}
+          <div class="pay">${b.entries.map(e => `${esc(e.payType)} ${money(e.amount)}（${mmdd(e.date)} 收）`).join("｜")}</div></div>
+        <div class="act">${b.cancelled
+          ? `<button class="btn tiny" data-act="undoCancel" data-key="${esc(b.key)}">復原取消</button>`
+          : `<button class="btn tiny" data-act="move" data-key="${esc(b.key)}">改期</button><button class="btn tiny danger" data-act="cancel" data-key="${esc(b.key)}">取消</button>`}</div>
+      </div>`).join("") : `<div class="empty">${q ? "找不到這位客人。" : "這個分類目前沒有預約。"}</div>`;
+  }
+  return `<div class="card">
+    <div class="row spread" style="margin-bottom:10px">
+      <div class="seg">${seg.map(([k, l]) => `<button class="${S.bookTab === k ? "on" : ""}" data-act="bookTab" data-v="${k}">${l}</button>`).join("")}</div>
+      ${S.bookTab === "stored" ? "" : `<div class="ctrl"><input type="search" id="f-book" placeholder="搜尋客人" value="${esc(S.bookQuery)}" aria-label="搜尋客人"></div>`}
+    </div>
+    ${body}
+  </div>`;
+}
+
+/* ---------- 報表 ---------- */
+function activeMonths(report) {
+  const idx = [];
+  for (let i = 0; i < 12; i++) {
+    if (report.rows.some(r => (r.type === "line" || r.type === "memo") && r.values[i])) idx.push(i);
+  }
+  if (!idx.length) return [Math.max(0, +S.month.slice(5, 7) - 1)];
+  const out = [];
+  for (let i = idx[0]; i <= idx[idx.length - 1]; i++) out.push(i);
+  return out;
+}
+
+function reportTable(report, drill) {
+  const months = activeMonths(report);
+  const head = months.map(i => drill
+    ? `<th class="mh ${S.drill === i ? "on" : ""}"><button data-act="drill" data-v="${i}">${i + 1}月</button></th>`
+    : `<th>${i + 1}月</th>`).join("");
+  const rows = report.rows.map(r => {
+    if (r.type === "head") return `<tr class="head"><td>${esc(r.label)}</td>${months.map(() => "<td></td>").join("")}<td></td></tr>`;
+    return `<tr class="${r.type}"><td>${esc(r.label)}</td>${months.map(i => `<td class="num">${r.values[i] === null ? "" : signed(r.values[i])}</td>`).join("")}<td class="num">${r.total === null || r.total === undefined ? "" : signed(r.total)}</td></tr>`;
+  }).join("");
+  return `<div class="tablewrap"><table class="report"><thead><tr><th>科目</th>${head}<th>${report.year} 合計</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+const yearControl = type => `<div class="row spread" style="margin-bottom:10px">
+  <div class="ctrl"><select id="f-year" aria-label="年度">${yearsAvailable().map(y => `<option value="${y}"${y === S.year ? " selected" : ""}>${y} 年</option>`).join("")}</select></div>
+  <button class="btn primary" data-act="download" data-v="${type}" id="dl-${type}">下載 Excel</button>
+</div>`;
+
+function yearsAvailable() {
+  const set = new Set([S.year, +todayStr().slice(0, 4)]);
+  liveEntries().forEach(e => {
+    set.add(+e.date.slice(0, 4));
+    if (e.serviceDate) set.add(+e.serviceDate.slice(0, 4));
+  });
+  return [...set].sort();
+}
+
+function viewPnL() {
+  const report = E.buildPnL(S.entries, S.settings, S.year);
+  const months = activeMonths(report);
+  const m = S.drill !== null && months.includes(S.drill) ? S.drill : null;
+  const detail = m === null ? "" : `<div class="card"><h2>${m + 1} 月損益明細</h2><div class="tablewrap"><table>
+    <thead><tr><th>類別</th><th>細項</th><th>客人</th><th>入帳／付款日</th><th class="num">金額</th></tr></thead>
+    <tbody>${report.details[m].slice().sort((a, b) => b.amount - a.amount).map(d => `<tr class="click" data-act="edit" data-id="${esc(d.entry.id)}">
+      <td>${esc(d.line)}</td><td class="wide">${esc(d.entry.desc)}</td><td>${esc(d.entry.customer || "")}</td><td class="num">${esc(d.entry.date)}</td><td class="num">${signed(d.amount)}</td></tr>`).join("")}</tbody>
+  </table></div></div>`;
+  return `<div class="stack"><div class="card">${yearControl("pnl")}
+    <p class="small muted" style="margin:0 0 8px">收入依服務日期算月份；訂金在服務前列預收款。點月份可看明細。</p>
+    ${reportTable(report, true)}</div>${detail}</div>`;
+}
+
+function viewCash() {
+  const report = E.buildCash(S.entries, S.settings, S.year);
+  const months = activeMonths(report);
+  const noOpening = !S.settings.opening?.month;
+  const methods = report.methods.length ? `<div class="card"><h2>各金流方式</h2><div class="tablewrap"><table class="report">
+    <thead><tr><th>金流方式</th>${months.map(i => `<th>${i + 1}月收</th><th>${i + 1}月支</th>`).join("")}</tr></thead>
+    <tbody>${report.methods.map(r => `<tr class="line"><td>${esc(r.label)}</td>${months.map(i => `<td class="num">${signed(r.in[i])}</td><td class="num">${signed(r.out[i])}</td>`).join("")}</tr>`).join("")}</tbody>
+  </table></div></div>` : "";
+  return `<div class="stack"><div class="card">${yearControl("cash")}
+    <p class="small muted" style="margin:0 0 8px">依實際收付日期計算。代墊款要等公司還錢才算流出。${noOpening ? `<button class="link" data-act="tab" data-v="config">填期初現金</button>就能看到月底現金餘額。` : ""}</p>
+    ${reportTable(report, false)}</div>${methods}</div>`;
+}
+
+/* ---------- 設定 ---------- */
+function viewConfig() {
+  const s = S.settings;
+  const types = [["direct", "服務成本（歸服務月）"], ["opex", "營業費用（歸付款月）"], ["none", "不列損益"]];
+  return `<div class="stack">
+    <div class="card">
+      <h2>匯入現有 Excel</h2>
+      <p class="small muted" style="margin:0 0 10px">選你現在的流水帳檔案，系統會從細項讀出服務日期、客人和類型。檔案只在這個瀏覽器讀取，確認後才存進資料庫。已匯入過的同一筆會自動跳過。</p>
+      <input type="file" id="import-file" accept=".xlsx" aria-label="選擇 Excel 檔">
+    </div>
+    <div class="card">
+      <h2>期初現金</h2>
+      <p class="small muted" style="margin:0 0 10px">填開始記帳那個月月初，全部帳戶和現金加起來的金額。</p>
+      <div class="grid2">
+        <div><label for="c-open-m">開始月份</label><input type="month" id="c-open-m" value="${esc(s.opening?.month || "")}"></div>
+        <div><label for="c-open-a">月初金額</label><input type="number" inputmode="numeric" id="c-open-a" value="${esc(s.opening?.amount || "")}"></div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>選單內容</h2>
+      <div class="stack">
+        <div><label for="c-brands">品牌（一行一個）</label>${area("c-brands", s.brands)}</div>
+        <div><label for="c-methods">金流方式（一行一個）</label>${area("c-methods", s.methods)}</div>
+        <div><label for="c-adv">代墊款人（一行一個）</label>${area("c-adv", s.advancers)}</div>
+      </div>
+    </div>
+    <div class="card">
+      <h2>費用科目</h2>
+      <div class="tablewrap"><table><thead><tr><th>科目</th><th>損益歸屬</th><th></th></tr></thead><tbody>
+      ${s.categories.map((c, i) => `<tr><td><input id="cat-n-${i}" value="${esc(c.name)}" aria-label="科目名稱"></td>
+        <td><select id="cat-t-${i}" aria-label="損益歸屬">${types.map(([k, l]) => `<option value="${k}"${c.type === k ? " selected" : ""}>${l}</option>`).join("")}</select></td>
+        <td><button class="btn tiny" data-act="catDel" data-v="${i}" aria-label="刪除 ${esc(c.name)}">刪除</button></td></tr>`).join("")}
+      </tbody></table></div>
+      <div class="row spread" style="margin-top:10px"><button class="btn tiny" data-act="catAdd">新增科目</button><button class="btn primary" data-act="saveConfig" id="save-config">儲存設定</button></div>
+    </div>
+    ${store.demo ? `<div class="card"><h2>示範資料</h2><div class="row"><button class="btn" data-act="demoReset" data-v="1">還原範例</button><button class="btn" data-act="demoReset" data-v="0">清空，從零開始試</button></div></div>` : ""}
+  </div>`;
+}
+const area = (id, list) => `<textarea id="${id}" rows="${Math.max(3, list.length)}" style="width:100%;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--card);color:inherit;font:inherit">${esc(list.join("\n"))}</textarea>`;
+const lines = id => document.getElementById(id).value.split("\n").map(x => x.trim()).filter(Boolean);
+
+function collectCategories() {
+  return S.settings.categories.map((c, i) => ({ name: document.getElementById(`cat-n-${i}`).value.trim(), type: document.getElementById(`cat-t-${i}`).value })).filter(c => c.name);
+}
+
+function collectConfig() {
+  return {
+    ...S.settings,
+    brands: lines("c-brands"), methods: lines("c-methods"), advancers: lines("c-adv"), categories: collectCategories(),
+    opening: { month: document.getElementById("c-open-m").value, amount: +document.getElementById("c-open-a").value || 0 },
+  };
+}
+
+/* ---------- 登入與主畫面 ---------- */
+function viewLogin() {
+  return `<div class="wrap narrow"><div class="card">
+    <h1>${esc(STUDIO_NAME)}記帳</h1>
+    <p class="muted small">請用開通過權限的帳號登入。</p>
+    <form id="login" class="stack">
+      <div><label for="l-email">信箱</label><input id="l-email" type="email" autocomplete="username" required></div>
+      <div><label for="l-pass">密碼</label><input id="l-pass" type="password" autocomplete="current-password" required></div>
+      ${S.loginMsg ? `<div class="err">${esc(S.loginMsg)}</div>` : ""}
+      <button class="btn primary" type="submit">登入</button>
+    </form>
+  </div></div>`;
+}
+
+function render() {
+  if (!S.ready) { app.innerHTML = `<div class="wrap"><div class="empty">載入中</div></div>`; return; }
+  if (!S.me) { app.innerHTML = viewLogin(); return; }
+  const tabs = [["ledger", "流水帳"], ["bookings", "預約"], ["pnl", "損益表"], ["cash", "現金流量表"], ["config", "設定"]];
+  if (S.accessError) {
+    app.innerHTML = `<div class="wrap narrow"><div class="card stack"><div class="err">${esc(S.accessError)}</div><button class="btn" data-act="logout">登出</button></div></div>`;
+    return;
+  }
+  if (!S.loaded) { app.innerHTML = `<div class="wrap"><div class="empty">正在讀取帳目</div></div>`; return; }
+  const views = { ledger: viewLedger, bookings: viewBookings, pnl: viewPnL, cash: viewCash, config: viewConfig };
+  const active = document.activeElement?.id;
+  const caret = active && document.activeElement.selectionStart;
+  app.innerHTML = `${store.demo ? `<div class="banner">示範模式：範例都是虛構資料，內容只存在這個瀏覽器。</div>` : ""}
+  <div class="wrap">
+    <div class="top"><h1>${esc(STUDIO_NAME)}記帳</h1>
+      ${store.demo ? "" : `<div class="row small muted"><span>${esc(who())}</span><button class="link" data-act="logout">登出</button></div>`}</div>
+    <div class="seg tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" aria-selected="${S.tab === k}" class="${S.tab === k ? "on" : ""}" data-act="tab" data-v="${k}">${l}</button>`).join("")}</div>
+    ${views[S.tab]()}
+  </div>`;
+  if (active) {
+    const el = document.getElementById(active);
+    if (el && !el.closest("dialog")) { el.focus(); if (caret !== null && caret !== undefined && el.setSelectionRange && el.type === "search") el.setSelectionRange(caret, caret); }
+  }
+}
+
+/* ---------- 登記表單 ---------- */
+function blankEntry(kind) {
+  const s = S.settings;
+  const today = todayStr();
+  const base = { id: null, kind, date: today, amount: "", method: "", note: "", desc: "", advancedBy: "" };
+  if (kind === "income") return { ...base, brand: s.brands[0], payType: "訂金", customer: "", serviceItem: "個人", serviceDate: "" };
+  if (kind === "expense") return { ...base, brand: "", category: "", customer: "", serviceDate: "", pnlMonth: "" };
+  return base;
+}
+
+const withCurrent = (list, cur) => (cur && !list.includes(cur) ? [...list, cur] : list);
+function field(id, label, html) { return `<div><label for="${id}">${label}</label>${html}</div>`; }
+const textInput = (id, value, attrs = "") => `<input id="${id}" value="${esc(value ?? "")}" ${attrs}>`;
+
+function formBody() {
+  const d = draft, s = S.settings;
+  const custs = [...new Set(liveEntries().map(e => e.customer).filter(Boolean))];
+  const cat = s.categories.map(c => c.name);
+  const seg = d.id ? "" : `<div class="seg">${[["income", "收入"], ["expense", "支出"], ["reimburse", "歸還代墊"]].map(([k, l]) => `<button type="button" class="${d.kind === k ? "on" : ""}" data-act="formKind" data-v="${k}">${l}</button>`).join("")}</div>`;
+  let fields = "";
+  if (d.kind === "income") {
+    fields = `<div class="grid2">
+      ${field("d-date", "入帳日期", textInput("d-date", d.date, 'type="date" data-k="date" required'))}
+      ${field("d-amount", "金額", textInput("d-amount", d.amount, 'type="number" min="1" inputmode="numeric" data-k="amount" required'))}
+      ${field("d-brand", "品牌", `<select id="d-brand" data-k="brand">${opt(s.brands, d.brand)}</select>`)}
+      ${field("d-paytype", "類型", `<select id="d-paytype" data-k="payType">${opt(s.payTypes, d.payType)}</select>`)}
+      ${field("d-customer", "客人", textInput("d-customer", d.customer, 'data-k="customer" list="custs" autocomplete="off"') + `<datalist id="custs">${custs.map(c => `<option value="${esc(c)}">`).join("")}</datalist>`)}
+      ${field("d-item", "服務項目", textInput("d-item", d.serviceItem, 'data-k="serviceItem" list="items" autocomplete="off"') + `<datalist id="items">${["個人", "雙人", "個人兩套", "雙人兩套", "三套", "租棚"].map(c => `<option value="${c}">`).join("")}</datalist>`)}
+      ${d.payType === "儲值金" ? "" : field("d-service", d.payType === "其他" ? "服務日期（可不填）" : "實際服務日期", textInput("d-service", d.serviceDate, 'type="date" data-k="serviceDate"'))}
+      ${field("d-method", "金流方式", `<select id="d-method" data-k="method">${opt(withCurrent(s.methods.filter(m => m !== E.ADVANCE), d.method), d.method, "請選擇")}</select>`)}
+    </div>`;
+  } else if (d.kind === "expense") {
+    const direct = E.categoryType(s, d.category) === "direct";
+    fields = `<div class="grid2">
+      ${field("d-date", "付款日期", textInput("d-date", d.date, 'type="date" data-k="date" required'))}
+      ${field("d-amount", "金額", textInput("d-amount", d.amount, 'type="number" min="1" inputmode="numeric" data-k="amount" required'))}
+      ${field("d-category", "科目", `<select id="d-category" data-k="category">${opt(withCurrent(cat, d.category), d.category, "請選擇")}</select>`)}
+      ${field("d-brand", "品牌（共同費用不用選）", `<select id="d-brand" data-k="brand">${opt(s.brands, d.brand, "共同費用")}</select>`)}
+      ${field("d-method", "金流方式", `<select id="d-method" data-k="method">${opt(withCurrent(s.methods, d.method), d.method, "請選擇")}</select>`)}
+      ${d.method === E.ADVANCE ? field("d-adv", "代墊款人", `<select id="d-adv" data-k="advancedBy">${opt(withCurrent(s.advancers, d.advancedBy), d.advancedBy, "請選擇")}</select>`) : ""}
+    </div>
+    ${field("d-desc", "細項", textInput("d-desc", d.desc, 'data-k="desc"'))}
+    <div class="grid2">
+      ${field("d-service", direct ? "服務日期（服務成本必填）" : "服務日期（綁定預約才填）", textInput("d-service", d.serviceDate, 'type="date" data-k="serviceDate"'))}
+      ${field("d-customer", "客人（綁定預約才填）", textInput("d-customer", d.customer, 'data-k="customer" list="custs" autocomplete="off"') + `<datalist id="custs">${custs.map(c => `<option value="${esc(c)}">`).join("")}</datalist>`)}
+      ${d.serviceDate ? "" : field("d-pnl", "損益月份（要歸別的月份才改）", textInput("d-pnl", d.pnlMonth, 'type="month" data-k="pnlMonth"'))}
+    </div>`;
+  } else if (d.kind === "reimburse") {
+    const owed = E.advanceOwed(S.entries);
+    fields = `<div class="grid2">
+      ${field("d-date", "還款日期", textInput("d-date", d.date, 'type="date" data-k="date" required'))}
+      ${field("d-adv", "代墊款人", `<select id="d-adv" data-k="advancedBy">${opt(Object.keys(owed).filter(k => owed[k]).concat(d.advancedBy && !owed[d.advancedBy] ? [d.advancedBy] : []), d.advancedBy, "請選擇")}</select>`)}
+      ${field("d-amount", "金額", textInput("d-amount", d.amount, 'type="number" min="1" inputmode="numeric" data-k="amount" required'))}
+      ${field("d-method", "金流方式", `<select id="d-method" data-k="method">${opt(withCurrent(s.methods.filter(m => m !== E.ADVANCE), d.method), d.method, "請選擇")}</select>`)}
+    </div>`;
+  } else {
+    fields = `<div class="hint">這筆退款由取消預約產生，要修改請到預約頁復原取消。</div>
+      ${field("d-note", "備註", textInput("d-note", d.note, 'data-k="note"'))}`;
+  }
+  const extra = d.kind === "refund" ? "" : `
+    ${d.kind === "income" && d.id ? field("d-desc", "細項", textInput("d-desc", d.desc, 'data-k="desc"')) : ""}
+    ${field("d-note", "備註", textInput("d-note", d.note, 'data-k="note"'))}`;
+  const flags = d.flags?.length ? `<div class="hint">匯入時標記：${esc(d.flags.join("；"))}。按儲存就算確認完成。</div>` : "";
+  return `${seg}${flags}${fields}${extra}<div id="d-hint"></div><div id="d-err"></div>`;
+}
+
+function refreshHint() {
+  const el = document.getElementById("d-hint");
+  if (!el) return;
+  const text = E.explain({ ...draft, amount: +draft.amount || 0 });
+  el.innerHTML = text ? `<div class="hint">${esc(text)}</div>` : "";
+}
+
+function openForm(entry) {
+  draft = entry ? clone(entry) : blankEntry("income");
+  modal = { type: "form" };
+  paintForm();
+  dlg.showModal();
+}
+
+function paintForm() {
+  const d = draft;
+  const title = d.id ? `修改${KIND_LABEL[d.kind]}` : "新增一筆";
+  dlg.innerHTML = `<form id="entry-form" method="dialog" novalidate>
+    <div class="mhead"><h2>${title}</h2><button type="button" class="btn tiny" data-act="close">關閉</button></div>
+    <div class="mbody">${formBody()}</div>
+    <div class="mfoot">
+      <div>${d.id ? `<button type="button" class="btn danger" data-act="del" id="del-entry">刪除</button>` : ""}</div>
+      <button type="submit" class="btn primary" id="save-entry">${d.id ? "儲存修改" : "登記"}</button>
+    </div></form>`;
+  refreshHint();
+}
+
+function validate(d) {
+  if (!d.date) return "請填日期。";
+  if (!(+d.amount > 0)) return "請填大於 0 的金額。";
+  if (d.kind === "income") {
+    if (d.payType !== "其他" && !d.customer.trim()) return "請填客人。";
+    if (!["儲值金", "其他"].includes(d.payType) && !d.serviceDate) return "請填實際服務日期，損益才知道歸哪個月。";
+    if (!d.method) return "請選金流方式。";
+  }
+  if (d.kind === "expense") {
+    if (!d.category) return "請選科目。";
+    if (!d.method) return "請選金流方式。";
+    if (d.method === E.ADVANCE && !d.advancedBy) return "請選代墊款人。";
+    if (!d.desc?.trim()) return "請填細項。";
+    if (E.categoryType(S.settings, d.category) === "direct" && !d.serviceDate && !d.pnlMonth) return "服務成本請填服務日期，或指定損益月份。";
+  }
+  if (d.kind === "reimburse") {
+    if (!d.advancedBy) return "請選代墊款人。";
+    if (!d.method) return "請選金流方式。";
+  }
+  return "";
+}
+
+async function submitForm() {
+  const d = { ...draft, amount: +draft.amount };
+  const problem = validate(d);
+  if (problem) { document.getElementById("d-err").innerHTML = `<div class="err">${esc(problem)}</div>`; return; }
+  const prior = d.id ? S.entries.find(e => e.id === d.id) : null;
+  if (d.method !== E.ADVANCE && d.kind === "expense") d.advancedBy = "";
+  if (d.kind === "income") {
+    if (d.payType === "儲值金") d.serviceDate = "";
+    const changed = !prior || prior.serviceDate !== d.serviceDate || prior.customer !== d.customer || prior.payType !== d.payType || prior.serviceItem !== d.serviceItem;
+    if (changed && d.serviceDate) d.desc = E.makeDesc(d);
+    if (changed && !d.serviceDate && !d.desc) d.desc = `${d.customer}${d.payType}`;
+  }
+  if (d.kind === "expense" && d.serviceDate) d.pnlMonth = "";
+  if (d.kind === "reimburse") d.desc = `歸還${d.advancedBy}代墊款`;
+  if (prior && d.serviceDate !== prior.serviceDate && prior.serviceDate) {
+    d.history = [...(d.history || []), { at: new Date().toISOString(), by: who(), action: "改期", from: prior.serviceDate, to: d.serviceDate }];
+  }
+  delete d.flags;
+  const isNew = !d.id;
+  if (isNew) d.id = newId();
+  d.createdBy = d.createdBy || who();
+  if (await save([d], isNew ? "已登記" : "已儲存")) {
+    S.month = d.date.slice(0, 7);
+    dlg.close();
+  }
+}
+
+/* ---------- 改期與取消 ---------- */
+function sameDayEntries(b) {
+  return liveEntries().filter(e => e.serviceDate === b.serviceDate && !e.cancel && e.kind !== "refund");
+}
+
+const pickList = b => sameDayEntries(b).map(e => `<label class="check"><input type="checkbox" class="pick" value="${esc(e.id)}"${(e.customer || "") === b.customer ? " checked" : ""}> <span>${esc(e.desc)}｜${e.kind === "income" ? "收" : "付"} ${money(e.amount)}</span></label>`).join("");
+
+function openMove(key) {
+  const b = E.bookings(S.entries).find(x => x.key === key);
+  modal = { type: "move", booking: b };
+  dlg.innerHTML = `<form id="move-form" method="dialog" novalidate>
+    <div class="mhead"><h2>${esc(b.customer)} 改期</h2><button type="button" class="btn tiny" data-act="close">關閉</button></div>
+    <div class="mbody">
+      ${field("m-date", `新的服務日期（原本 ${esc(b.serviceDate)}）`, `<input type="date" id="m-date" required>`)}
+      <div><div class="small muted" style="margin-bottom:4px">一起搬到新日期的項目</div>${pickList(b)}</div>
+      <div id="d-err"></div>
+    </div>
+    <div class="mfoot"><span></span><button class="btn primary" type="submit" id="save-move">確認改期</button></div></form>`;
+  dlg.showModal();
+}
+
+function openCancel(key) {
+  const b = E.bookings(S.entries).find(x => x.key === key);
+  modal = { type: "cancel", booking: b };
+  dlg.innerHTML = `<form id="cancel-form" method="dialog" novalidate>
+    <div class="mhead"><h2>${esc(b.customer)} 取消預約</h2><button type="button" class="btn tiny" data-act="close">關閉</button></div>
+    <div class="mbody">
+      <div><div class="small muted" style="margin-bottom:4px">取消的項目</div>${pickList(b)}</div>
+      <div class="grid2">
+        ${field("x-date", "取消日期", `<input type="date" id="x-date" value="${todayStr()}">`)}
+        ${field("x-refund", `退給客人的金額（已收 ${money(b.received)}）`, `<input type="number" min="0" inputmode="numeric" id="x-refund" value="0">`)}
+        ${field("x-method", "退款方式", `<select id="x-method">${opt(S.settings.methods.filter(m => m !== E.ADVANCE), "", "不退款免選")}</select>`)}
+      </div>
+      <div class="hint" id="x-hint"></div>
+      <div id="d-err"></div>
+    </div>
+    <div class="mfoot"><span></span><button class="btn primary" type="submit" id="save-cancel">確認取消</button></div></form>`;
+  refreshCancelHint();
+  dlg.showModal();
+}
+
+function picked() {
+  const ids = [...dlg.querySelectorAll(".pick:checked")].map(x => x.value);
+  return liveEntries().filter(e => ids.includes(e.id));
+}
+
+function refreshCancelHint() {
+  const el = document.getElementById("x-hint");
+  if (!el) return;
+  const received = picked().filter(e => e.kind === "income").reduce((s, e) => s + e.amount, 0);
+  const refund = +document.getElementById("x-refund").value || 0;
+  const date = document.getElementById("x-date").value;
+  const kept = received - refund;
+  const when = date ? `${+date.slice(5, 7)} 月` : "取消當月";
+  el.textContent = refund >= received ? `全額退款，這筆不算收入，${when}現金流出 ${money(refund)}。`
+    : refund > 0 ? `退 ${money(refund)}，留下的 ${money(kept)} 算 ${when}的取消訂金收入。`
+      : `訂金不退，${money(kept)} 算 ${when}的取消訂金收入。`;
+}
+
+function openStored(id) {
+  const e = S.entries.find(x => x.id === id);
+  modal = { type: "stored", entry: e };
+  const left = e.amount - (e.lines || []).reduce((s, l) => s + l.amount, 0);
+  dlg.innerHTML = `<form id="stored-form" method="dialog" novalidate>
+    <div class="mhead"><h2>${esc(e.customer)} 儲值使用</h2><button type="button" class="btn tiny" data-act="close">關閉</button></div>
+    <div class="mbody"><div class="hint">目前餘額 ${money(left)}。使用的金額會算進服務日期那個月的收入。</div>
+      <div class="grid2">
+        ${field("u-date", "服務日期", `<input type="date" id="u-date" value="${todayStr()}">`)}
+        ${field("u-amount", "使用金額", `<input type="number" min="1" inputmode="numeric" id="u-amount">`)}
+      </div>
+      ${field("u-item", "服務內容", `<input id="u-item">`)}
+      ${(e.lines || []).length ? `<div>${e.lines.map((l, i) => `<div class="check spread"><span>${esc(l.date)}｜${money(l.amount)} ${esc(l.item || "")}</span><button type="button" class="btn tiny" data-act="lineDel" data-v="${i}">刪除</button></div>`).join("")}</div>` : ""}
+      <div id="d-err"></div></div>
+    <div class="mfoot"><span></span><button class="btn primary" type="submit" id="save-stored">記下使用</button></div></form>`;
+  dlg.showModal();
+}
+
+/* ---------- 匯入 ---------- */
+function cellValue(c) {
+  const v = c.value;
+  if (v && typeof v === "object" && !(v instanceof Date)) {
+    if ("result" in v) return v.result;
+    if (v.richText) return v.richText.map(t => t.text).join("");
+    if ("text" in v) return v.text;
+    return "";
+  }
+  return v;
+}
+
+async function readWorkbook(file) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(await file.arrayBuffer());
+  const rows = [];
+  wb.worksheets.forEach(ws => {
+    let map = null;
+    ws.eachRow(r => {
+      const values = {};
+      r.eachCell((c, n) => { values[n] = cellValue(c); });
+      if (!map) {
+        const head = Object.entries(values).reduce((o, [n, v]) => { o[String(v).trim()] = +n; return o; }, {});
+        if (head["日期"] && head["項目"] && head["細項"] && head["收入"] && head["支出"]) map = head;
+        return;
+      }
+      const d = values[map["日期"]];
+      if (!(d instanceof Date)) return;
+      const income = +values[map["收入"]] || 0, expense = +values[map["支出"]] || 0;
+      if (!income && !expense) return;
+      rows.push({
+        date: d.toISOString().slice(0, 10), item: values[map["項目"]], desc: values[map["細項"]], income, expense,
+        method: values[map["金流方式"]] || "", advancedBy: values[map["代墊款人"]] || "", note: values[map["備註"]] || "",
+      });
+    });
+  });
+  return rows;
+}
+
+async function startImport(file) {
+  if (!window.ExcelJS) { toast("Excel 工具還沒載入，請確認網路後重新整理"); return; }
+  let rows;
+  try { rows = await readWorkbook(file); }
+  catch { toast("這個檔案讀不出來，請確認是 .xlsx"); return; }
+  if (!rows.length) { toast("找不到含有日期、項目、細項、收入、支出欄位的工作表"); return; }
+  const existing = new Set(liveEntries().map(E.fingerprint));
+  const parsed = E.markSuspects(rows.map(r => E.parseRow(r, S.settings)));
+  const fresh = parsed.filter(p => !existing.has(E.fingerprint(p.entry)));
+  S.importState = { fresh, skipped: parsed.length - fresh.length, income: fresh.filter(p => p.entry.kind === "income").reduce((s, p) => s + p.entry.amount, 0), expense: fresh.filter(p => p.entry.kind === "expense").reduce((s, p) => s + p.entry.amount, 0) };
+  modal = { type: "import" };
+  const flagged = fresh.filter(p => p.flags.length);
+  dlg.innerHTML = `<form id="import-form" method="dialog" novalidate>
+    <div class="mhead"><h2>確認匯入</h2><button type="button" class="btn tiny" data-act="close">關閉</button></div>
+    <div class="mbody">
+      <div class="okmsg">讀到 ${parsed.length} 筆，新增 ${fresh.length} 筆${S.importState.skipped ? `，${S.importState.skipped} 筆已經匯入過` : ""}。收入 ${money(S.importState.income)}，支出 ${money(S.importState.expense)}。</div>
+      ${flagged.length ? `<div class="small muted">這 ${flagged.length} 筆先照下列方式處理，匯入後可在流水帳的「待確認」逐筆修改：</div>
+      <div class="tablewrap"><table><thead><tr><th>日期</th><th>細項</th><th class="num">金額</th><th>處理方式</th></tr></thead><tbody>
+      ${flagged.map(p => `<tr><td class="num">${mmdd(p.entry.date)}</td><td class="wide">${esc(p.entry.desc)}</td><td class="num">${money(p.entry.amount)}</td><td class="small">${esc(p.flags.join("；"))}</td></tr>`).join("")}
+      </tbody></table></div>` : ""}
+    </div>
+    <div class="mfoot"><span></span><button class="btn primary" type="submit" id="do-import"${fresh.length ? "" : " disabled"}>匯入 ${fresh.length} 筆</button></div></form>`;
+  dlg.showModal();
+}
+
+/* ---------- 事件 ---------- */
+document.addEventListener("click", async ev => {
+  const t = ev.target.closest("[data-act]");
+  if (!t) return;
+  const { act, v, id, key } = t.dataset;
+  if (act === "tab") { S.tab = v; S.drill = null; render(); }
+  else if (act === "add") openForm(null);
+  else if (act === "edit") { const e = S.entries.find(x => x.id === id); if (e) openForm(e); }
+  else if (act === "toggleFlag") { S.onlyFlagged = !S.onlyFlagged; render(); }
+  else if (act === "bookTab") { S.bookTab = v; render(); }
+  else if (act === "move") openMove(key);
+  else if (act === "cancel") openCancel(key);
+  else if (act === "useStored") openStored(id);
+  else if (act === "close") dlg.close();
+  else if (act === "drill") { S.drill = S.drill === +v ? null : +v; render(); }
+  else if (act === "download") download(v);
+  else if (act === "logout") store.signOut();
+  else if (act === "formKind") { draft = blankEntry(v); paintForm(); }
+  else if (act === "undoCancel") {
+    const b = E.bookings(S.entries).find(x => x.key === key);
+    if (await save(E.undoCancel(S.entries, b, who(), new Date().toISOString()), "已復原取消")) render();
+  }
+  else if (act === "del") {
+    if (t.dataset.armed) {
+      if (await save([{ ...S.entries.find(e => e.id === draft.id), deleted: true, deletedBy: who() }], "已刪除")) dlg.close();
+    } else { t.dataset.armed = "1"; t.textContent = "再按一次確定刪除"; }
+  }
+  else if (act === "lineDel") {
+    const e = clone(modal.entry);
+    e.lines.splice(+v, 1);
+    if (await save([e], "已刪除這次使用")) dlg.close();
+  }
+  else if (act === "catAdd") { S.settings = { ...S.settings, ...collectConfig() }; S.settings.categories.push({ name: "新科目", type: "opex" }); render(); }
+  else if (act === "catDel") { const c = collectConfig(); c.categories.splice(+v, 1); S.settings = c; render(); }
+  else if (act === "saveConfig") { try { await store.saveSettings(collectConfig()); toast("設定已儲存"); } catch (e) { toast(e.message); } }
+  else if (act === "demoReset") { await store.reset(v === "1"); toast("示範資料已更新"); }
+});
+
+document.addEventListener("input", ev => {
+  const el = ev.target;
+  if (el.id === "f-query") { S.query = el.value; render(); return; }
+  if (el.id === "f-book") { S.bookQuery = el.value; render(); return; }
+  if (el.id === "x-refund" || el.id === "x-date" || el.classList.contains("pick")) { refreshCancelHint(); return; }
+  if (el.dataset?.k && draft) {
+    draft[el.dataset.k] = el.value;
+    if (el.dataset.k === "customer" && draft.kind === "income" && !draft.id && !draft.serviceDate) {
+      const hit = E.bookings(S.entries).filter(b => !b.cancelled && b.customer === el.value.trim() && b.serviceDate >= draft.date);
+      if (hit.length === 1) {
+        draft.serviceDate = hit[0].serviceDate;
+        draft.brand = hit[0].brand;
+        const e0 = hit[0].entries[0];
+        draft.serviceItem = e0.serviceItem || draft.serviceItem;
+        draft.payType = "尾款";
+        paintForm();
+        document.getElementById("d-customer").focus();
+        return;
+      }
+    }
+    refreshHint();
+  }
+});
+
+document.addEventListener("change", ev => {
+  const el = ev.target;
+  if (el.id === "f-month") { S.month = el.value || S.month; S.onlyFlagged = false; render(); return; }
+  if (el.id === "f-year") { S.year = +el.value; S.drill = null; render(); return; }
+  if (el.id === "import-file" && el.files[0]) { startImport(el.files[0]); el.value = ""; return; }
+  if (draft && ["d-category", "d-method", "d-paytype", "d-service"].includes(el.id)) {
+    if (el.id === "d-paytype" && ["租棚", "儲值金", "其他"].includes(el.value) && draft.serviceItem === "個人") draft.serviceItem = "";
+    const focus = el.id; paintForm();
+    document.getElementById(focus)?.focus();
+  }
+});
+
+document.addEventListener("submit", async ev => {
+  ev.preventDefault();
+  const f = ev.target;
+  if (f.id === "login") {
+    S.loginMsg = "";
+    try { await store.signIn(document.getElementById("l-email").value.trim(), document.getElementById("l-pass").value); }
+    catch (e) { S.loginMsg = e.message; render(); }
+  }
+  else if (f.id === "entry-form") await submitForm();
+  else if (f.id === "move-form") {
+    const date = document.getElementById("m-date").value;
+    const sel = picked();
+    if (!date || !sel.length) { document.getElementById("d-err").innerHTML = `<div class="err">請選新的日期和要搬的項目。</div>`; return; }
+    if (await save(E.reschedule(sel, date, who(), new Date().toISOString()), `已改到 ${date}`)) dlg.close();
+  }
+  else if (f.id === "cancel-form") {
+    const date = document.getElementById("x-date").value;
+    const refund = +document.getElementById("x-refund").value || 0;
+    const method = document.getElementById("x-method").value;
+    const fail = m => { document.getElementById("d-err").innerHTML = `<div class="err">${esc(m)}</div>`; };
+    if (!date) return fail("請填取消日期。");
+    if (!picked().length) return fail("請至少勾選一個項目。");
+    if (refund > 0 && !method) return fail("請選退款方式。");
+    try {
+      const docs = E.cancelBooking(picked(), { date, refund, method, who: who(), now: new Date().toISOString(), makeId: newId });
+      if (await save(docs, "預約已取消")) dlg.close();
+    } catch (e) { fail(e.message); }
+  }
+  else if (f.id === "stored-form") {
+    const date = document.getElementById("u-date").value, amount = +document.getElementById("u-amount").value;
+    const left = modal.entry.amount - (modal.entry.lines || []).reduce((s, l) => s + l.amount, 0);
+    const fail = m => { document.getElementById("d-err").innerHTML = `<div class="err">${esc(m)}</div>`; };
+    if (!date || !(amount > 0)) return fail("請填服務日期和金額。");
+    if (amount > left) return fail(`使用金額不能超過餘額 ${money(left)}。`);
+    const e = clone(modal.entry);
+    e.lines = [...(e.lines || []), { date, amount, item: document.getElementById("u-item").value.trim() }];
+    if (await save([e], "已記下使用")) dlg.close();
+  }
+  else if (f.id === "import-form") {
+    const docs = S.importState.fresh.map(p => ({ ...p.entry, id: newId(), ...(p.flags.length ? { flags: p.flags } : {}) }));
+    if (await save(docs, `已匯入 ${docs.length} 筆`)) {
+      dlg.close();
+      S.month = docs[0].date.slice(0, 7);
+      S.year = +docs[0].date.slice(0, 4);
+      S.tab = "ledger";
+      render();
+    }
+  }
+});
+
+dlg.addEventListener("close", () => { draft = null; modal = null; render(); });
+
+/* ---------- 啟動 ---------- */
+(async function boot() {
+  try {
+    store = FIREBASE_CONFIG ? await makeFirebaseStore(FIREBASE_CONFIG) : makeDemoStore();
+  } catch {
+    app.innerHTML = `<div class="wrap"><div class="err">連不上資料庫，請檢查網路後重新整理。</div></div>`;
+    return;
+  }
+  if (store.demo) { S.month = "2026-10"; S.year = 2026; }
+  store.start(user => {
+    S.me = user;
+    S.ready = true;
+    S.loaded = false;
+    S.accessError = "";
+    if (!user) { S.entries = []; render(); return; }
+    store.subscribe((entries, settings) => {
+      S.entries = entries;
+      S.loaded = true;
+      S.settings = mergeSettings(settings);
+      if (!dlg.open) render();
+    }, err => { S.accessError = err.message; render(); });
+  });
+  render();
+})();
+</script>
+</body>
+</html>
