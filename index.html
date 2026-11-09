@@ -109,6 +109,8 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
 .err{background:var(--bad-soft);color:var(--bad);padding:8px 12px;border-radius:9px;font-size:14px}
 .okmsg{background:var(--ok-soft);color:var(--ok);padding:8px 12px;border-radius:9px;font-size:14px}
 .check{display:flex;gap:8px;align-items:center;padding:6px 0;font-size:14px;color:var(--ink);margin:0;border-bottom:1px solid var(--line)}
+.feealert{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--bad-soft);color:var(--bad);border:1px solid var(--bad);border-radius:12px;padding:12px 14px;margin-bottom:16px}
+.feealert .small{color:var(--bad);opacity:.85}
 .empty{padding:28px 12px;text-align:center;color:var(--muted)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:9px;font-size:14px;z-index:99;max-width:calc(100vw - 32px)}
 @media (max-width:760px){
@@ -227,7 +229,27 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
 
   /* 代墊款隨下個月初的薪資一起撥還：上個月底以前未還的代墊，由當月薪資扣抵。
      薪資那筆仍保留實際匯款金額，只是其中一部分算歸還代墊，不算薪資費用。 */
+  /* 刷卡手續費：存在原本那筆支出上，計算時拆成一筆「手續費」支出 */
+  const isCard = method => /刷卡|信用卡/.test(method || "");
+  const feePending = e => e.kind === "expense" && !e.deleted && isCard(e.method) && e.source !== "import" && !e.feeOf
+    && (e.feeStatus === "pending" || (e.feeStatus === undefined && !(e.fee > 0)));
+
+  function withFees(entries) {
+    const out = [];
+    for (const e of entries) {
+      out.push(e);
+      if (e.kind === "expense" && !e.deleted && isCard(e.method) && e.fee > 0 && e.feeStatus !== "none") {
+        out.push({
+          id: `${e.id}#fee`, feeOf: e.id, kind: "expense", category: "手續費", date: e.feeDate || e.date, amount: +e.fee,
+          method: e.method, brand: e.brand || "", desc: `${e.desc}刷卡手續費`, note: "", customer: "", serviceDate: "",
+        });
+      }
+    }
+    return out;
+  }
+
   function settle(entries, settings) {
+    entries = withFees(entries);
     const list = live(entries);
     const names = settings.salaryNames || {};
     const people = new Set(list.filter(e => (e.kind === "expense" && e.method === ADVANCE) || e.kind === "reimburse").map(e => e.advancedBy || UNFILLED));
@@ -728,7 +750,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
       expense: e.kind === "income" ? "" : e.amount,
       method: e.method || "",
       advancedBy: e.advancedBy || "",
-      note: [e.note, e.advanceRepaid ? `含代墊款 ${e.advanceRepaid}` : ""].filter(Boolean).join("；"),
+      note: [e.note, e.advanceRepaid ? `含代墊款 ${e.advanceRepaid}` : "", feePending(e) ? "手續費未入帳" : ""].filter(Boolean).join("；"),
       serviceDate: e.serviceDate || "",
       pnlMonth: e.kind === "expense" && categoryType(settings, e.category) === "none" ? "不列損益" : pnlMonthOf(e),
     }));
@@ -791,7 +813,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
   }
 
   root.LedgerEngine = {
-    DEFAULT_SETTINGS, ADVANCE, UNFILLED, CANCEL_LINE, recognize, expenseMonth, categoryType, balancesAt, settle, advanceOwed, monthEndOf,
+    DEFAULT_SETTINGS, ADVANCE, UNFILLED, CANCEL_LINE, recognize, expenseMonth, categoryType, isCard, feePending, withFees, balancesAt, settle, advanceOwed, monthEndOf,
     buildPnL, buildCash, bookings, storedValues, reschedule, cancelBooking, undoCancel, makeDesc, explain, inferDate,
     parseIncomeDesc, parseRow, reparseEntry, canConfirm, confirmEntry, NO_DATE_FLAG, markSuspects, fingerprint, workbookPnL, workbookCash, ledgerRows, deferredList, live, ym,
   };
@@ -824,7 +846,8 @@ function sampleEntries() {
     expense("s15", "2026-10-22", "化妝師費用", "範例佩佩化妝", 1500, "轉帳", { customer: "範例佩佩", serviceDate: "2026-10-22" }),
     expense("s16", "2026-10-12", "化妝師費用", "範例阿凱化妝訂金", 800, "轉帳", { customer: "範例阿凱", serviceDate: "2026-12-12" }),
     expense("s17", "2026-10-14", "雜項購置", "攝影燈材", 6800, "代墊款", { advancedBy: "範例同事" }),
-    expense("s18", "2026-10-16", "廣告費", "社群廣告", 2500, "刷卡0927"),
+    expense("s18", "2026-10-16", "廣告費", "社群廣告", 2500, "刷卡0927", { feeStatus: "set", fee: 38 }),
+    expense("s20", "2026-10-29", "執行成本", "修圖軟體月費", 1000, "刷卡0927", { feeStatus: "pending" }),
     { id: "s19", kind: "reimburse", date: "2026-10-28", amount: 3000, method: "轉帳", advancedBy: "範例同事", desc: "歸還範例同事代墊款", note: "" },
   ];
   return rows;
@@ -862,7 +885,7 @@ const mergeSettings = s => {
 
 const S = {
   tab: "ledger", month: todayStr().slice(0, 7), year: +todayStr().slice(0, 4), entries: [], settings: clone(E.DEFAULT_SETTINGS),
-  me: null, ready: false, loaded: false, accessError: "", loginMsg: "", query: "", onlyFlagged: false, picked: new Set(), bookTab: "upcoming", bookQuery: "", drill: null, importState: null,
+  me: null, ready: false, loaded: false, accessError: "", loginMsg: "", query: "", onlyFlagged: false, onlyFee: false, picked: new Set(), bookTab: "upcoming", bookQuery: "", drill: null, importState: null,
 };
 let store = null;
 let draft = null;
@@ -1010,12 +1033,15 @@ function viewLedger() {
   if (!flagged.length) S.onlyFlagged = false;
   const noDate = liveEntries().filter(E.reparseEntry).length;
   if (S.onlyFlagged) rows = flagged;
+  const feeList = settled.filter(E.feePending);
+  if (!feeList.length) S.onlyFee = false;
+  if (S.onlyFee) rows = feeList;
   if (q) rows = rows.filter(e => [e.desc, e.customer, e.brand, e.category, e.method, e.note].join(" ").toLowerCase().includes(q));
   rows.sort((a, b) => (q ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)));
   const selectable = rows.filter(E.canConfirm);
   const pickedCount = selectable.filter(e => S.picked.has(e.id)).length;
   const body = rows.map(e => {
-    const pnl = E.ledgerRows([e], null, S.settings)[0].pnlMonth;
+    const pnl = E.ledgerRows([e], null, S.settings)[0]?.pnlMonth || E.ym(e.date);
     const shifted = pnl && pnl !== E.ym(e.date);
     return `<tr class="click" data-act="edit" data-id="${esc(e.id)}">
       ${S.onlyFlagged ? `<td data-act="noop">${E.canConfirm(e)
@@ -1023,7 +1049,7 @@ function viewLedger() {
         : `<span class="small muted">先填</span>`}</td>` : ""}
       <td class="num">${q ? esc(e.date.replace(/-/g, "/")) : mmdd(e.date)}</td>
       <td>${esc(e.kind === "income" ? e.brand : e.kind === "expense" ? e.category : KIND_LABEL[e.kind])}</td>
-      <td class="wide">${esc(e.desc)}${e.flags?.length ? ` <span class="pill warn">待確認</span>` : ""}${e.cancel ? ` <span class="pill bad">已取消</span>` : ""}<div class="small muted">${esc([e.advanceRepaid ? `含代墊款 ${money(e.advanceRepaid)}，薪資費用 ${money(e.amount - e.advanceRepaid)}` : "", ...(e.flags || [])].filter(Boolean).join("；"))}</div></td>
+      <td class="wide">${esc(e.desc)}${e.flags?.length ? ` <span class="pill warn">待確認</span>` : ""}${e.cancel ? ` <span class="pill bad">已取消</span>` : ""}${E.feePending(e) ? ` <span class="pill bad">手續費未填</span>` : ""}${e.feeOf ? ` <span class="pill off">自動拆出</span>` : ""}<div class="small muted">${esc([e.advanceRepaid ? `含代墊款 ${money(e.advanceRepaid)}，薪資費用 ${money(e.amount - e.advanceRepaid)}` : "", ...(e.flags || [])].filter(Boolean).join("；"))}</div></td>
       <td class="num">${e.kind === "income" ? money(e.amount) : ""}</td>
       <td class="num">${e.kind !== "income" ? money(e.amount) : ""}</td>
       <td>${e.method ? esc(e.method) : `<span class="pill warn">未填</span>`}${e.advancedBy ? `<div class="small muted">${esc(e.advancedBy)}</div>` : ""}</td>
@@ -1042,7 +1068,8 @@ function viewLedger() {
       <div class="ctrl">
         <input type="month" id="f-month" value="${esc(S.month)}" aria-label="月份">
         <input type="search" id="f-query" placeholder="搜尋全部月份" value="${esc(S.query)}" aria-label="搜尋">
-        ${flagged.length ? `<button class="btn tiny" data-act="toggleFlag">${S.onlyFlagged ? "看全部" : `待確認 ${flagged.length} 筆`}</button>` : ""}
+        ${S.onlyFee ? `<button class="btn tiny" data-act="toggleFee">看全部</button>` : ""}
+        ${flagged.length && !S.onlyFee ? `<button class="btn tiny" data-act="toggleFlag">${S.onlyFlagged ? "看全部" : `待確認 ${flagged.length} 筆`}</button>` : ""}
         ${S.onlyFlagged && selectable.length ? `<button class="btn tiny primary" data-act="confirmFlags" id="confirm-flags"${pickedCount ? "" : " disabled"}>確認選取 ${pickedCount} 筆</button>` : ""}
         ${noDate ? `<button class="btn tiny" data-act="reparse" id="reparse">重新判讀 ${noDate} 筆收入月份</button>` : ""}
       </div>
@@ -1236,6 +1263,14 @@ function viewLogin() {
   </div></div>`;
 }
 
+function feeBanner() {
+  const list = liveEntries().filter(E.feePending);
+  if (!list.length || S.onlyFee) return "";
+  const total = list.reduce((s, e) => s + e.amount, 0);
+  return `<div class="feealert" role="alert"><div><b>${list.length} 筆刷卡還沒填手續費</b><div class="small">刷卡金額共 ${money(total)}，最早一筆是 ${esc(list.map(e => e.date).sort()[0])}。入帳後記得回來補。</div></div>
+    <button class="btn tiny" data-act="toggleFee" id="fee-open">去填手續費</button></div>`;
+}
+
 function render() {
   if (!S.ready) { app.innerHTML = `<div class="wrap"><div class="empty">載入中</div></div>`; return; }
   if (!S.me) { app.innerHTML = viewLogin(); return; }
@@ -1253,6 +1288,7 @@ function render() {
     <div class="top"><h1>${esc(STUDIO_NAME)}記帳</h1>
       ${store.demo ? "" : `<div class="row small muted"><span>${esc(who())}</span><button class="link" data-act="logout">登出</button></div>`}</div>
     <div class="seg tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" aria-selected="${S.tab === k}" class="${S.tab === k ? "on" : ""}" data-act="tab" data-v="${k}">${l}</button>`).join("")}</div>
+    ${feeBanner()}
     ${views[S.tab]()}
   </div>`;
   if (active) {
@@ -1300,6 +1336,9 @@ function formBody() {
       ${field("d-category", "科目", `<select id="d-category" data-k="category">${opt(withCurrent(cat, d.category), d.category, "請選擇")}</select>`)}
       ${field("d-brand", "品牌（共同費用不用選）", `<select id="d-brand" data-k="brand">${opt(s.brands, d.brand, "共同費用")}</select>`)}
       ${field("d-method", "金流方式", `<select id="d-method" data-k="method">${opt(withCurrent(s.methods, d.method), d.method, "請選擇")}</select>`)}
+      ${E.isCard(d.method) ? field("d-feestatus", "刷卡手續費", `<select id="d-feestatus" data-k="feeStatus">${[["pending", "還沒入帳，之後提醒我"], ["set", "已入帳，填金額"], ["none", "這筆沒有手續費"]].map(([k, l]) => `<option value="${k}"${(d.feeStatus || "pending") === k ? " selected" : ""}>${l}</option>`).join("")}</select>`) : ""}
+      ${E.isCard(d.method) && d.feeStatus === "set" ? field("d-fee", "手續費金額", textInput("d-fee", d.fee, 'type="number" min="1" inputmode="numeric" data-k="fee"')) : ""}
+      ${E.isCard(d.method) && d.feeStatus === "set" ? field("d-feedate", "手續費入帳日（可不填，預設同付款日）", textInput("d-feedate", d.feeDate, 'type="date" data-k="feeDate"')) : ""}
       ${d.method === E.ADVANCE ? field("d-adv", "代墊款人", `<select id="d-adv" data-k="advancedBy">${opt(withCurrent(s.advancers, d.advancedBy), d.advancedBy, "請選擇")}</select>`) : ""}
     </div>
     ${field("d-desc", "細項", textInput("d-desc", d.desc, 'data-k="desc"'))}
@@ -1340,11 +1379,13 @@ function refreshHint() {
   el.innerHTML = text ? `<div class="hint">${esc(text)}</div>` : "";
 }
 
-function openForm(entry) {
+function openForm(entry, focusFee) {
   draft = entry ? clone(entry) : blankEntry("income");
   modal = { type: "form" };
+  if (focusFee && draft.kind === "expense" && E.isCard(draft.method) && draft.feeStatus !== "set") draft.feeStatus = "set";
   paintForm();
   dlg.showModal();
+  if (focusFee) document.getElementById("d-fee")?.focus();
 }
 
 function paintForm() {
@@ -1373,6 +1414,7 @@ function validate(d) {
     if (!d.method) return "請選金流方式。";
     if (d.method === E.ADVANCE && !d.advancedBy) return "請選代墊款人。";
     if (!d.desc?.trim()) return "請填細項。";
+    if (E.isCard(d.method) && d.feeStatus === "set" && !(+d.fee > 0)) return "請填手續費金額，或改選「還沒入帳」。";
     if (d.category === "薪資" && d.advanceManual !== "" && +d.advanceManual > +d.amount) return "代墊款不能大於這筆金額。";
     if (E.categoryType(S.settings, d.category) === "direct" && !d.serviceDate && !d.pnlMonth) return "服務成本請填服務日期，或指定損益月份。";
   }
@@ -1396,6 +1438,13 @@ async function submitForm() {
     if (changed && !d.serviceDate && !d.desc) d.desc = `${d.customer}${d.payType}`;
   }
   if (d.kind === "expense" && d.serviceDate) d.pnlMonth = "";
+  if (d.kind === "expense") {
+    if (!E.isCard(d.method)) { delete d.feeStatus; delete d.fee; delete d.feeDate; }
+    else {
+      d.feeStatus = d.feeStatus || "pending";
+      if (d.feeStatus === "set") d.fee = +d.fee; else { delete d.fee; delete d.feeDate; }
+    }
+  }
   if (d.advanceManual === "" || d.advanceManual === undefined || d.category !== "薪資") delete d.advanceManual;
   else d.advanceManual = +d.advanceManual;
   if (d.kind === "reimburse") d.desc = `歸還${d.advancedBy}代墊款`;
@@ -1406,7 +1455,8 @@ async function submitForm() {
   const isNew = !d.id;
   if (isNew) d.id = newId();
   d.createdBy = d.createdBy || who();
-  if (await save([d], isNew ? "已登記" : "已儲存")) {
+  const feeMsg = d.kind === "expense" && E.isCard(d.method) && d.feeStatus === "pending" ? "，手續費入帳後記得回來補" : "";
+  if (await save([d], (isNew ? "已登記" : "已儲存") + feeMsg)) {
     S.month = d.date.slice(0, 7);
     dlg.close();
   }
@@ -1560,7 +1610,8 @@ document.addEventListener("click", async ev => {
   const { act, v, id, key } = t.dataset;
   if (act === "tab") { S.tab = v; S.drill = null; render(); }
   else if (act === "add") openForm(null);
-  else if (act === "edit") { const e = S.entries.find(x => x.id === id); if (e) openForm(e); }
+  else if (act === "edit") { const e = S.entries.find(x => x.id === id.replace(/#fee$/, "")); if (e) openForm(e, id.endsWith("#fee") || E.feePending(e)); }
+  else if (act === "toggleFee") { S.onlyFee = !S.onlyFee; S.onlyFlagged = false; S.tab = "ledger"; S.query = ""; render(); }
   else if (act === "reparse") {
     const docs = liveEntries().map(E.reparseEntry).filter(Boolean);
     await save(docs, `已判讀 ${docs.length} 筆`);
@@ -1651,7 +1702,7 @@ document.addEventListener("change", ev => {
   if (el.id === "f-month") { S.month = el.value || S.month; S.onlyFlagged = false; render(); return; }
   if (el.id === "f-year") { S.year = +el.value; S.drill = null; render(); return; }
   if (el.id === "import-file" && el.files[0]) { startImport(el.files[0]); el.value = ""; return; }
-  if (draft && ["d-category", "d-method", "d-paytype", "d-service"].includes(el.id)) {
+  if (draft && ["d-category", "d-method", "d-paytype", "d-service", "d-feestatus"].includes(el.id)) {
     if (el.id === "d-paytype" && ["租棚", "儲值金", "其他"].includes(el.value) && draft.serviceItem === "個人") draft.serviceItem = "";
     const focus = el.id; paintForm();
     document.getElementById(focus)?.focus();
@@ -1719,6 +1770,9 @@ dlg.addEventListener("close", () => { draft = null; modal = null; render(); });
     return;
   }
   if (store.demo) { S.month = "2026-10"; S.year = 2026; }
+  setTimeout(() => {
+    if (!S.ready) app.innerHTML = `<div class="wrap narrow"><div class="card stack"><div class="err">登入服務一直沒有回應。請重新整理；如果是在 LINE、IG 或其他 App 裡開啟，請改用 Safari 或 Chrome 打開。</div><button class="btn" onclick="location.reload()">重新整理</button></div></div>`;
+  }, 15000);
   store.start(user => {
     S.me = user;
     S.ready = true;
