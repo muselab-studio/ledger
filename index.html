@@ -111,6 +111,17 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
 .check{display:flex;gap:8px;align-items:center;padding:6px 0;font-size:14px;color:var(--ink);margin:0;border-bottom:1px solid var(--line)}
 .feealert{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;background:var(--bad-soft);color:var(--bad);border:1px solid var(--bad);border-radius:12px;padding:12px 14px;margin-bottom:16px}
 .feealert .small{color:var(--bad);opacity:.85}
+.tag{--pc:var(--muted);display:inline-flex;align-items:center;gap:5px;padding:2px 10px;border-radius:99px;font-size:13px;font-weight:500;white-space:nowrap;line-height:1.5;
+  background:color-mix(in srgb,var(--pc) 15%,var(--card));color:color-mix(in srgb,var(--pc) 72%,var(--ink));border:1px solid color-mix(in srgb,var(--pc) 35%,transparent)}
+.itemcell{box-shadow:inset 3px 0 0 var(--pc)}
+.legend{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px}
+.legend .tag{cursor:pointer;font:inherit;font-size:13px}
+.legend .tag.on{background:var(--pc);color:var(--card);border-color:var(--pc)}
+.legend .tag.dim{opacity:.45}
+.legend .cnt{font-variant-numeric:tabular-nums;opacity:.75}
+.colors{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px}
+.colorrow{display:flex;align-items:center;gap:8px;margin:0;color:var(--ink);cursor:pointer}
+.colorrow input[type=color]{width:34px;height:28px;padding:2px;border-radius:7px;flex:none;cursor:pointer}
 .empty{padding:28px 12px;text-align:center;color:var(--muted)}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(20px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 16px;border-radius:9px;font-size:14px;z-index:99;max-width:calc(100vw - 32px)}
 @media (max-width:760px){
@@ -883,9 +894,33 @@ const mergeSettings = s => {
   return merged;
 };
 
+/* 流水帳的項目顏色：收入用品牌色，支出依科目，可在設定改 */
+const DEFAULT_COLORS = {
+  如梭映像: "#b5674a", plus: "#c2577f", muse: "#7a5cb8", 其他: "#6f8a86",
+  化妝師費用: "#c98a2e", 攝影師抽成: "#b07a1f", 發包費用: "#a3762f",
+  薪資: "#3f74b5", 勞健退: "#4b8fa8", 房租: "#5a6fb0", 執行成本: "#3f8a63", 雜項購置: "#7c8a3a",
+  廣告費: "#c25a5a", 餐飲費: "#d07a3e", 手續費: "#8a7d70", 業主往來: "#6b6b6b",
+  退款: "#b4483e", 歸還代墊: "#5f7f99",
+};
+const PALETTE = ["#b5674a", "#3f74b5", "#3f8a63", "#7a5cb8", "#c98a2e", "#c2577f", "#4b8fa8", "#7c8a3a", "#a35c8f", "#5f7f99"];
+const itemOf = e => (e.kind === "income" ? e.brand : e.kind === "expense" ? e.category : KIND_LABEL[e.kind]) || "未分類";
+function colorOf(name) {
+  const set = S.settings.colors || {};
+  if (set[name]) return set[name];
+  if (DEFAULT_COLORS[name]) return DEFAULT_COLORS[name];
+  let h = 0;
+  for (const ch of String(name)) h = (h * 31 + ch.codePointAt(0)) >>> 0;
+  return PALETTE[h % PALETTE.length];
+}
+const chip = (name, extra = "") => `<span class="tag" style="--pc:${colorOf(name)}"${extra}>${esc(name)}</span>`;
+function allItems() {
+  const s = S.settings;
+  return [...new Set([...s.brands, ...s.categories.map(c => c.name), "退款", "歸還代墊"])];
+}
+
 const S = {
   tab: "ledger", month: todayStr().slice(0, 7), year: +todayStr().slice(0, 4), entries: [], settings: clone(E.DEFAULT_SETTINGS),
-  me: null, ready: false, loaded: false, accessError: "", loginMsg: "", query: "", onlyFlagged: false, onlyFee: false, picked: new Set(), bookTab: "upcoming", bookQuery: "", drill: null, importState: null,
+  me: null, ready: false, loaded: false, accessError: "", loginMsg: "", query: "", onlyFlagged: false, onlyFee: false, item: "", picked: new Set(), bookTab: "upcoming", bookQuery: "", drill: null, importState: null,
 };
 let store = null;
 let draft = null;
@@ -1037,6 +1072,10 @@ function viewLedger() {
   if (!feeList.length) S.onlyFee = false;
   if (S.onlyFee) rows = feeList;
   if (q) rows = rows.filter(e => [e.desc, e.customer, e.brand, e.category, e.method, e.note].join(" ").toLowerCase().includes(q));
+  const present = [...new Set(rows.map(itemOf))].sort((a, b) => allItems().indexOf(a) - allItems().indexOf(b));
+  const counts = rows.reduce((o, e) => { o[itemOf(e)] = (o[itemOf(e)] || 0) + 1; return o; }, {});
+  if (S.item && !present.includes(S.item)) S.item = "";
+  if (S.item) rows = rows.filter(e => itemOf(e) === S.item);
   rows.sort((a, b) => (q ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)));
   const selectable = rows.filter(E.canConfirm);
   const pickedCount = selectable.filter(e => S.picked.has(e.id)).length;
@@ -1048,7 +1087,7 @@ function viewLedger() {
         ? `<input type="checkbox" class="flag-pick" value="${esc(e.id)}"${S.picked.has(e.id) ? " checked" : ""} aria-label="選取 ${esc(e.desc)}">`
         : `<span class="small muted">先填</span>`}</td>` : ""}
       <td class="num">${q ? esc(e.date.replace(/-/g, "/")) : mmdd(e.date)}</td>
-      <td>${esc(e.kind === "income" ? e.brand : e.kind === "expense" ? e.category : KIND_LABEL[e.kind])}</td>
+      <td class="itemcell" style="--pc:${colorOf(itemOf(e))}">${chip(itemOf(e))}</td>
       <td class="wide">${esc(e.desc)}${e.flags?.length ? ` <span class="pill warn">待確認</span>` : ""}${e.cancel ? ` <span class="pill bad">已取消</span>` : ""}${E.feePending(e) ? ` <span class="pill bad">手續費未填</span>` : ""}${e.feeOf ? ` <span class="pill off">自動拆出</span>` : ""}<div class="small muted">${esc([e.advanceRepaid ? `含代墊款 ${money(e.advanceRepaid)}，薪資費用 ${money(e.amount - e.advanceRepaid)}` : "", ...(e.flags || [])].filter(Boolean).join("；"))}</div></td>
       <td class="num">${e.kind === "income" ? money(e.amount) : ""}</td>
       <td class="num">${e.kind !== "income" ? money(e.amount) : ""}</td>
@@ -1075,6 +1114,7 @@ function viewLedger() {
       </div>
       <button class="btn primary" data-act="add" id="add-entry">新增一筆</button>
     </div>
+    ${present.length > 1 ? `<div class="legend" role="group" aria-label="依項目篩選">${present.map(n => `<button type="button" class="tag${S.item === n ? " on" : ""}${S.item && S.item !== n ? " dim" : ""}" style="--pc:${colorOf(n)}" data-act="itemFilter" data-v="${esc(n)}" aria-pressed="${S.item === n}">${esc(n)} <span class="cnt">${counts[n]}</span></button>`).join("")}${S.item ? `<button type="button" class="link small" data-act="itemFilter" data-v="">顯示全部</button>` : ""}</div>` : ""}
     ${q && rows.length ? `<p class="small muted" style="margin:0 0 6px">搜尋全部月份，找到 ${rows.length} 筆，新的在前。</p>` : ""}
     ${rows.length ? `<div class="tablewrap"><table>
       <thead><tr>${S.onlyFlagged ? `<th><input type="checkbox" id="flag-all" aria-label="全選可確認的項目"${selectable.length && selectable.every(e => S.picked.has(e.id)) ? " checked" : ""}></th>` : ""}<th>日期</th><th>項目</th><th>細項</th><th class="num">收入</th><th class="num">支出</th><th>金流</th><th>損益月份</th></tr></thead>
@@ -1222,6 +1262,11 @@ function viewConfig() {
       </div>
     </div>
     <div class="card">
+      <h2>流水帳顏色</h2>
+      <p class="small muted" style="margin:0 0 10px">點色塊換顏色，改完按下面的「儲存設定」。</p>
+      <div class="colors">${allItems().map((n, i) => `<label class="colorrow" for="col-${i}"><input type="color" id="col-${i}" data-name="${esc(n)}" value="${colorOf(n)}">${chip(n)}${(S.settings.colors || {})[n] ? `<button type="button" class="link small" data-act="colorReset" data-v="${esc(n)}">預設</button>` : ""}</label>`).join("")}</div>
+    </div>
+    <div class="card">
       <h2>費用科目</h2>
       <div class="tablewrap"><table><thead><tr><th>科目</th><th>損益歸屬</th><th></th></tr></thead><tbody>
       ${s.categories.map((c, i) => `<tr><td><input id="cat-n-${i}" value="${esc(c.name)}" aria-label="科目名稱"></td>
@@ -1244,6 +1289,7 @@ function collectConfig() {
   return {
     ...S.settings,
     brands: lines("c-brands"), methods: lines("c-methods"), advancers: lines("c-adv"), categories: collectCategories(),
+    colors: Object.fromEntries([...document.querySelectorAll(".colors input[type=color]")].filter(x => x.value.toLowerCase() !== (DEFAULT_COLORS[x.dataset.name] || "").toLowerCase() || (S.settings.colors || {})[x.dataset.name]).map(x => [x.dataset.name, x.value])),
     salaryNames: Object.fromEntries(lines("c-salary").map(l => l.split("=").map(x => x.trim())).filter(p => p[0] && p[1])),
     opening: { month: document.getElementById("c-open-m").value, amount: +document.getElementById("c-open-a").value || 0 },
   };
@@ -1611,6 +1657,8 @@ document.addEventListener("click", async ev => {
   if (act === "tab") { S.tab = v; S.drill = null; render(); }
   else if (act === "add") openForm(null);
   else if (act === "edit") { const e = S.entries.find(x => x.id === id.replace(/#fee$/, "")); if (e) openForm(e, id.endsWith("#fee") || E.feePending(e)); }
+  else if (act === "itemFilter") { S.item = S.item === v ? "" : v; render(); }
+  else if (act === "colorReset") { const c = collectConfig(); delete c.colors[v]; S.settings = c; render(); }
   else if (act === "toggleFee") { S.onlyFee = !S.onlyFee; S.onlyFlagged = false; S.tab = "ledger"; S.query = ""; render(); }
   else if (act === "reparse") {
     const docs = liveEntries().map(E.reparseEntry).filter(Boolean);
