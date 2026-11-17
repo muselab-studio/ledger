@@ -245,6 +245,18 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
   const feePending = e => e.kind === "expense" && !e.deleted && isCard(e.method) && e.source !== "import" && !e.feeOf
     && (e.feeStatus === "pending" || (e.feeStatus === undefined && !(e.fee > 0)));
 
+  /* 尾款找不到同一位客人、同一天的訂金 */
+  const normName = n => String(n || "").replace(/\s/g, "").toLowerCase();
+  function missingDeposits(entries) {
+    const list = live(entries).filter(e => e.kind === "income");
+    const deposits = list.filter(e => e.payType === "訂金" && e.serviceDate);
+    const keys = new Set(deposits.map(e => `${e.serviceDate}|${normName(e.customer)}`));
+    return list
+      .filter(e => e.payType === "尾款" && e.serviceDate && !e.cancel && !e.noDeposit && !keys.has(`${e.serviceDate}|${normName(e.customer)}`))
+      .map(e => ({ entry: e, nearby: deposits.filter(d => normName(d.customer) && normName(d.customer) === normName(e.customer)) }))
+      .sort((a, b) => b.entry.serviceDate.localeCompare(a.entry.serviceDate));
+  }
+
   function withFees(entries) {
     const out = [];
     for (const e of entries) {
@@ -824,7 +836,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
   }
 
   root.LedgerEngine = {
-    DEFAULT_SETTINGS, ADVANCE, UNFILLED, CANCEL_LINE, recognize, expenseMonth, categoryType, isCard, feePending, withFees, balancesAt, settle, advanceOwed, monthEndOf,
+    DEFAULT_SETTINGS, ADVANCE, UNFILLED, CANCEL_LINE, recognize, expenseMonth, categoryType, missingDeposits, isCard, feePending, withFees, balancesAt, settle, advanceOwed, monthEndOf,
     buildPnL, buildCash, bookings, storedValues, reschedule, cancelBooking, undoCancel, makeDesc, explain, inferDate,
     parseIncomeDesc, parseRow, reparseEntry, canConfirm, confirmEntry, NO_DATE_FLAG, markSuspects, fingerprint, workbookPnL, workbookCash, ledgerRows, deferredList, live, ym,
   };
@@ -848,6 +860,7 @@ function sampleEntries() {
     income("s6", "2026-10-10", "如梭映像", "範例佩佩", "個人", "訂金", "2026-10-22", 3000, "轉帳"),
     income("s7", "2026-10-22", "如梭映像", "範例佩佩", "個人", "尾款", "2026-10-22", 5990, "現金"),
     income("s8", "2026-10-22", "如梭映像", "範例佩佩", "精修", "加購", "2026-10-22", 1200, "現金"),
+    income("s21", "2026-10-26", "如梭映像", "範例小鈴", "個人", "尾款", "2026-10-26", 5990, "轉帳"),
     income("s9", "2026-10-12", "如梭映像", "範例攝影師", "", "租棚", "2026-10-12", 1800, "轉帳"),
     income("s10", "2026-10-15", "如梭映像", "範例小樹", "個人", "訂金", "2027-01-16", 3000, "轉帳"),
     income("s11", "2026-10-18", "其他", "範例儲值客", "", "儲值金", "", 30000, "轉帳", { lines: [{ date: "2026-10-28", amount: 6000, item: "第一次拍攝" }] }),
@@ -920,7 +933,7 @@ function allItems() {
 
 const S = {
   tab: "ledger", month: todayStr().slice(0, 7), year: +todayStr().slice(0, 4), entries: [], settings: clone(E.DEFAULT_SETTINGS),
-  me: null, ready: false, loaded: false, accessError: "", loginMsg: "", query: "", onlyFlagged: false, onlyFee: false, item: "", picked: new Set(), bookTab: "upcoming", bookQuery: "", drill: null, importState: null,
+  me: null, ready: false, loaded: false, accessError: "", loginMsg: "", query: "", onlyFlagged: false, onlyFee: false, onlyDeposit: false, item: "", picked: new Set(), bookTab: "upcoming", bookQuery: "", drill: null, importState: null,
 };
 let store = null;
 let draft = null;
@@ -1071,24 +1084,29 @@ function viewLedger() {
   const feeList = settled.filter(E.feePending);
   if (!feeList.length) S.onlyFee = false;
   if (S.onlyFee) rows = feeList;
+  const depList = E.missingDeposits(S.entries);
+  const nearbyOf = Object.fromEntries(depList.map(m => [m.entry.id, m.nearby]));
+  if (!depList.length) S.onlyDeposit = false;
+  if (S.onlyDeposit) rows = depList.map(m => m.entry);
+  const picking = S.onlyFlagged || S.onlyDeposit;
   if (q) rows = rows.filter(e => [e.desc, e.customer, e.brand, e.category, e.method, e.note].join(" ").toLowerCase().includes(q));
   const present = [...new Set(rows.map(itemOf))].sort((a, b) => allItems().indexOf(a) - allItems().indexOf(b));
   const counts = rows.reduce((o, e) => { o[itemOf(e)] = (o[itemOf(e)] || 0) + 1; return o; }, {});
   if (S.item && !present.includes(S.item)) S.item = "";
   if (S.item) rows = rows.filter(e => itemOf(e) === S.item);
   rows.sort((a, b) => (q ? b.date.localeCompare(a.date) : a.date.localeCompare(b.date)));
-  const selectable = rows.filter(E.canConfirm);
+  const selectable = S.onlyDeposit ? rows : rows.filter(E.canConfirm);
   const pickedCount = selectable.filter(e => S.picked.has(e.id)).length;
   const body = rows.map(e => {
     const pnl = E.ledgerRows([e], null, S.settings)[0]?.pnlMonth || E.ym(e.date);
     const shifted = pnl && pnl !== E.ym(e.date);
     return `<tr class="click" data-act="edit" data-id="${esc(e.id)}">
-      ${S.onlyFlagged ? `<td data-act="noop">${E.canConfirm(e)
+      ${picking ? `<td data-act="noop">${S.onlyDeposit || E.canConfirm(e)
         ? `<input type="checkbox" class="flag-pick" value="${esc(e.id)}"${S.picked.has(e.id) ? " checked" : ""} aria-label="選取 ${esc(e.desc)}">`
         : `<span class="small muted">先填</span>`}</td>` : ""}
       <td class="num">${q ? esc(e.date.replace(/-/g, "/")) : mmdd(e.date)}</td>
       <td class="itemcell" style="--pc:${colorOf(itemOf(e))}">${chip(itemOf(e))}</td>
-      <td class="wide">${esc(e.desc)}${e.flags?.length ? ` <span class="pill warn">待確認</span>` : ""}${e.cancel ? ` <span class="pill bad">已取消</span>` : ""}${E.feePending(e) ? ` <span class="pill bad">手續費未填</span>` : ""}${e.feeOf ? ` <span class="pill off">自動拆出</span>` : ""}<div class="small muted">${esc([e.advanceRepaid ? `含代墊款 ${money(e.advanceRepaid)}，薪資費用 ${money(e.amount - e.advanceRepaid)}` : "", ...(e.flags || [])].filter(Boolean).join("；"))}</div></td>
+      <td class="wide">${esc(e.desc)}${e.flags?.length ? ` <span class="pill warn">待確認</span>` : ""}${e.cancel ? ` <span class="pill bad">已取消</span>` : ""}${E.feePending(e) ? ` <span class="pill bad">手續費未填</span>` : ""}${nearbyOf[e.id] ? ` <span class="pill bad">沒有訂金</span>` : ""}${e.feeOf ? ` <span class="pill off">自動拆出</span>` : ""}${S.onlyDeposit && nearbyOf[e.id] ? `<div class="small" style="margin:4px 0">${nearbyOf[e.id].length ? `<span class="muted">這位客人有其他日期的訂金：${nearbyOf[e.id].map(d => `${esc(d.serviceDate)} 收 ${money(d.amount)}`).join("、")}，可能日期登記不一致。</span><br>` : ""}<span class="row" style="gap:6px;margin-top:4px"><button type="button" class="btn tiny primary" data-act="addDeposit" data-id="${esc(e.id)}">補登訂金</button><button type="button" class="btn tiny" data-act="noDeposit" data-id="${esc(e.id)}">這筆沒有訂金</button></span></div>` : ""}<div class="small muted">${esc([e.advanceRepaid ? `含代墊款 ${money(e.advanceRepaid)}，薪資費用 ${money(e.amount - e.advanceRepaid)}` : "", ...(e.flags || [])].filter(Boolean).join("；"))}</div></td>
       <td class="num">${e.kind === "income" ? money(e.amount) : ""}</td>
       <td class="num">${e.kind !== "income" ? money(e.amount) : ""}</td>
       <td>${e.method ? esc(e.method) : `<span class="pill warn">未填</span>`}${e.advancedBy ? `<div class="small muted">${esc(e.advancedBy)}</div>` : ""}</td>
@@ -1108,7 +1126,9 @@ function viewLedger() {
         <input type="month" id="f-month" value="${esc(S.month)}" aria-label="月份">
         <input type="search" id="f-query" placeholder="搜尋全部月份" value="${esc(S.query)}" aria-label="搜尋">
         ${S.onlyFee ? `<button class="btn tiny" data-act="toggleFee">看全部</button>` : ""}
-        ${flagged.length && !S.onlyFee ? `<button class="btn tiny" data-act="toggleFlag">${S.onlyFlagged ? "看全部" : `待確認 ${flagged.length} 筆`}</button>` : ""}
+        ${S.onlyDeposit ? `<button class="btn tiny" data-act="toggleDeposit">看全部</button>` : ""}
+        ${S.onlyDeposit ? `<button class="btn tiny" data-act="noDepositPicked" id="nodep-picked"${pickedCount ? "" : " disabled"}>選取的 ${pickedCount} 筆不用補</button>` : ""}
+        ${flagged.length && !S.onlyFee && !S.onlyDeposit ? `<button class="btn tiny" data-act="toggleFlag">${S.onlyFlagged ? "看全部" : `待確認 ${flagged.length} 筆`}</button>` : ""}
         ${S.onlyFlagged && selectable.length ? `<button class="btn tiny primary" data-act="confirmFlags" id="confirm-flags"${pickedCount ? "" : " disabled"}>確認選取 ${pickedCount} 筆</button>` : ""}
         ${noDate ? `<button class="btn tiny" data-act="reparse" id="reparse">重新判讀 ${noDate} 筆收入月份</button>` : ""}
       </div>
@@ -1117,7 +1137,7 @@ function viewLedger() {
     ${present.length > 1 ? `<div class="legend" role="group" aria-label="依項目篩選">${present.map(n => `<button type="button" class="tag${S.item === n ? " on" : ""}${S.item && S.item !== n ? " dim" : ""}" style="--pc:${colorOf(n)}" data-act="itemFilter" data-v="${esc(n)}" aria-pressed="${S.item === n}">${esc(n)} <span class="cnt">${counts[n]}</span></button>`).join("")}${S.item ? `<button type="button" class="link small" data-act="itemFilter" data-v="">顯示全部</button>` : ""}</div>` : ""}
     ${q && rows.length ? `<p class="small muted" style="margin:0 0 6px">搜尋全部月份，找到 ${rows.length} 筆，新的在前。</p>` : ""}
     ${rows.length ? `<div class="tablewrap"><table>
-      <thead><tr>${S.onlyFlagged ? `<th><input type="checkbox" id="flag-all" aria-label="全選可確認的項目"${selectable.length && selectable.every(e => S.picked.has(e.id)) ? " checked" : ""}></th>` : ""}<th>日期</th><th>項目</th><th>細項</th><th class="num">收入</th><th class="num">支出</th><th>金流</th><th>損益月份</th></tr></thead>
+      <thead><tr>${picking ? `<th><input type="checkbox" id="flag-all" aria-label="全選可確認的項目"${selectable.length && selectable.every(e => S.picked.has(e.id)) ? " checked" : ""}></th>` : ""}<th>日期</th><th>項目</th><th>細項</th><th class="num">收入</th><th class="num">支出</th><th>金流</th><th>損益月份</th></tr></thead>
       <tbody>${body}</tbody></table></div>` : `<div class="empty">${q ? "找不到符合的紀錄。" : "這個月還沒有紀錄。按「新增一筆」開始登記，或到設定匯入現有 Excel。"}</div>`}
   </div>`;
 }
@@ -1309,6 +1329,14 @@ function viewLogin() {
   </div></div>`;
 }
 
+function depositBanner() {
+  const list = E.missingDeposits(S.entries);
+  if (!list.length || S.onlyDeposit) return "";
+  const total = list.reduce((s, m) => s + m.entry.amount, 0);
+  return `<div class="feealert" role="alert"><div><b>${list.length} 筆尾款找不到訂金</b><div class="small">尾款共 ${money(total)}。訂金沒登記，現金流量表和預收款都會少算。</div></div>
+    <button class="btn tiny" data-act="toggleDeposit" id="dep-open">去補登訂金</button></div>`;
+}
+
 function feeBanner() {
   const list = liveEntries().filter(E.feePending);
   if (!list.length || S.onlyFee) return "";
@@ -1334,6 +1362,7 @@ function render() {
     <div class="top"><h1>${esc(STUDIO_NAME)}記帳</h1>
       ${store.demo ? "" : `<div class="row small muted"><span>${esc(who())}</span><button class="link" data-act="logout">登出</button></div>`}</div>
     <div class="seg tabs" role="tablist">${tabs.map(([k, l]) => `<button role="tab" aria-selected="${S.tab === k}" class="${S.tab === k ? "on" : ""}" data-act="tab" data-v="${k}">${l}</button>`).join("")}</div>
+    ${depositBanner()}
     ${feeBanner()}
     ${views[S.tab]()}
   </div>`;
@@ -1417,6 +1446,13 @@ function refreshHint() {
   const el = document.getElementById("d-hint");
   if (!el) return;
   let text = E.explain({ ...draft, amount: +draft.amount || 0 });
+  if (draft.kind === "income" && draft.payType === "尾款" && draft.customer && draft.serviceDate && !draft.noDeposit) {
+    const probe = { ...draft, id: draft.id || "__draft", kind: "income", amount: +draft.amount || 0 };
+    if (E.missingDeposits([...S.entries.filter(e => e.id !== probe.id), probe]).some(m => m.entry.id === probe.id)) {
+      el.innerHTML = `${text ? `<div class="hint">${esc(text)}</div>` : ""}<div class="err" style="margin-top:8px">找不到 ${esc(draft.customer)} 在 ${esc(draft.serviceDate)} 的訂金。儲存後上方會提醒你補登。</div>`;
+      return;
+    }
+  }
   if (draft.kind === "expense" && draft.category === "薪資" && draft.date && +draft.amount > 0) {
     const row = { ...draft, id: draft.id || "__draft", amount: +draft.amount, advanceManual: draft.advanceManual === "" || draft.advanceManual === undefined ? undefined : +draft.advanceManual };
     const part = E.settle([...S.entries.filter(e => e.id !== row.id), row], S.settings).find(e => e.id === row.id).advanceRepaid || 0;
@@ -1659,6 +1695,20 @@ document.addEventListener("click", async ev => {
   else if (act === "edit") { const e = S.entries.find(x => x.id === id.replace(/#fee$/, "")); if (e) openForm(e, id.endsWith("#fee") || E.feePending(e)); }
   else if (act === "itemFilter") { S.item = S.item === v ? "" : v; render(); }
   else if (act === "colorReset") { const c = collectConfig(); delete c.colors[v]; S.settings = c; render(); }
+  else if (act === "toggleDeposit") { S.onlyDeposit = !S.onlyDeposit; S.onlyFee = false; S.onlyFlagged = false; S.tab = "ledger"; S.query = ""; S.item = ""; S.picked.clear(); render(); }
+  else if (act === "addDeposit") {
+    const t = S.entries.find(e => e.id === id);
+    openForm(null);
+    Object.assign(draft, { brand: t.brand, customer: t.customer, serviceItem: t.serviceItem || "", serviceDate: t.serviceDate, payType: "訂金", date: "" });
+    paintForm();
+    document.getElementById("d-date").focus();
+  }
+  else if (act === "noDeposit" || act === "noDepositPicked") {
+    const ids = act === "noDeposit" ? [id] : [...S.picked];
+    const now = new Date().toISOString();
+    const docs = S.entries.filter(e => ids.includes(e.id)).map(e => ({ ...e, noDeposit: true, history: [...(e.history || []), { at: now, by: who(), action: "標為沒有訂金" }] }));
+    if (docs.length && await save(docs, `已標記 ${docs.length} 筆不用補訂金`)) { S.picked.clear(); render(); }
+  }
   else if (act === "toggleFee") { S.onlyFee = !S.onlyFee; S.onlyFlagged = false; S.tab = "ledger"; S.query = ""; render(); }
   else if (act === "reparse") {
     const docs = liveEntries().map(E.reparseEntry).filter(Boolean);
