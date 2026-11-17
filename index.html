@@ -165,6 +165,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
       { name: "業主往來", type: "none" },
     ],
     opening: { month: "", amount: 0 },
+    reviewFrom: "2026-07",
   };
 
   const LINE_OF = { 訂金: "寫真服務", 尾款: "寫真服務", 全額: "寫真服務", 加購: "加購", 租棚: "租棚", 儲值金: "儲值服務", 社群經營: "社群經營", 其他: "其他收入" };
@@ -925,6 +926,8 @@ function colorOf(name) {
   for (const ch of String(name)) h = (h * 31 + ch.codePointAt(0)) >>> 0;
   return PALETTE[h % PALETTE.length];
 }
+/* 只提醒這個月份以後的紀錄，太舊的不再列入待確認 */
+const inReview = e => !S.settings.reviewFrom || (e.date || "") >= `${S.settings.reviewFrom}-01`;
 const chip = (name, extra = "") => `<span class="tag" style="--pc:${colorOf(name)}"${extra}>${esc(name)}</span>`;
 function allItems() {
   const s = S.settings;
@@ -1077,14 +1080,14 @@ function viewLedger() {
   const settled = E.live(E.settle(S.entries, S.settings));
   const q = S.query.trim().toLowerCase();
   let rows = q ? settled : settled.filter(e => e.date.startsWith(S.month));
-  const flagged = settled.filter(e => e.flags?.length);
+  const flagged = settled.filter(e => e.flags?.length && inReview(e));
   if (!flagged.length) S.onlyFlagged = false;
   const noDate = liveEntries().filter(E.reparseEntry).length;
   if (S.onlyFlagged) rows = flagged;
-  const feeList = settled.filter(E.feePending);
+  const feeList = settled.filter(e => E.feePending(e) && inReview(e));
   if (!feeList.length) S.onlyFee = false;
   if (S.onlyFee) rows = feeList;
-  const depList = E.missingDeposits(S.entries);
+  const depList = E.missingDeposits(S.entries).filter(m => inReview(m.entry));
   const nearbyOf = Object.fromEntries(depList.map(m => [m.entry.id, m.nearby]));
   if (!depList.length) S.onlyDeposit = false;
   if (S.onlyDeposit) rows = depList.map(m => m.entry);
@@ -1265,6 +1268,11 @@ function viewConfig() {
       <input type="file" id="import-file" accept=".xlsx" aria-label="選擇 Excel 檔">
     </div>
     <div class="card">
+      <h2>提醒範圍</h2>
+      <p class="small muted" style="margin:0 0 10px">待確認、尾款找不到訂金、刷卡手續費這三種提醒，只看這個月份以後的紀錄。更早的資料照樣算進報表，只是不再提醒。清空就是全部都提醒。</p>
+      <div class="grid2"><div><label for="c-review">從哪個月開始提醒</label><input type="month" id="c-review" value="${esc(s.reviewFrom || "")}"></div></div>
+    </div>
+    <div class="card">
       <h2>期初現金</h2>
       <p class="small muted" style="margin:0 0 10px">填開始記帳那個月月初，全部帳戶和現金加起來的金額。</p>
       <div class="grid2">
@@ -1311,6 +1319,7 @@ function collectConfig() {
     brands: lines("c-brands"), methods: lines("c-methods"), advancers: lines("c-adv"), categories: collectCategories(),
     colors: Object.fromEntries([...document.querySelectorAll(".colors input[type=color]")].filter(x => x.value.toLowerCase() !== (DEFAULT_COLORS[x.dataset.name] || "").toLowerCase() || (S.settings.colors || {})[x.dataset.name]).map(x => [x.dataset.name, x.value])),
     salaryNames: Object.fromEntries(lines("c-salary").map(l => l.split("=").map(x => x.trim())).filter(p => p[0] && p[1])),
+    reviewFrom: document.getElementById("c-review").value,
     opening: { month: document.getElementById("c-open-m").value, amount: +document.getElementById("c-open-a").value || 0 },
   };
 }
@@ -1330,7 +1339,7 @@ function viewLogin() {
 }
 
 function depositBanner() {
-  const list = E.missingDeposits(S.entries);
+  const list = E.missingDeposits(S.entries).filter(m => inReview(m.entry));
   if (!list.length || S.onlyDeposit) return "";
   const total = list.reduce((s, m) => s + m.entry.amount, 0);
   return `<div class="feealert" role="alert"><div><b>${list.length} 筆尾款找不到訂金</b><div class="small">尾款共 ${money(total)}。訂金沒登記，現金流量表和預收款都會少算。</div></div>
@@ -1338,7 +1347,7 @@ function depositBanner() {
 }
 
 function feeBanner() {
-  const list = liveEntries().filter(E.feePending);
+  const list = liveEntries().filter(e => E.feePending(e) && inReview(e));
   if (!list.length || S.onlyFee) return "";
   const total = list.reduce((s, e) => s + e.amount, 0);
   return `<div class="feealert" role="alert"><div><b>${list.length} 筆刷卡還沒填手續費</b><div class="small">刷卡金額共 ${money(total)}，最早一筆是 ${esc(list.map(e => e.date).sort()[0])}。入帳後記得回來補。</div></div>
