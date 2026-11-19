@@ -248,13 +248,18 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
 
   /* 尾款找不到同一位客人、同一天的訂金 */
   const normName = n => String(n || "").replace(/\s/g, "").toLowerCase();
+  /* 「喬萱、又仁」這種一起付的訂金，拆成每個人各自的名字來比對 */
+  const splitNames = n => String(n || "").split(/[、,，/／&＆+＋]/).map(normName).filter(Boolean);
+  const sharesName = (a, b) => { const set = new Set(splitNames(a)); return splitNames(b).some(n => set.has(n)); };
+
   function missingDeposits(entries) {
     const list = live(entries).filter(e => e.kind === "income");
     const deposits = list.filter(e => e.payType === "訂金" && e.serviceDate);
-    const keys = new Set(deposits.map(e => `${e.serviceDate}|${normName(e.customer)}`));
+    const keys = new Set(deposits.flatMap(e => splitNames(e.customer).map(n => `${e.serviceDate}|${n}`)));
+    const hasDeposit = e => splitNames(e.customer).some(n => keys.has(`${e.serviceDate}|${n}`));
     return list
-      .filter(e => e.payType === "尾款" && e.serviceDate && !e.cancel && !e.noDeposit && !keys.has(`${e.serviceDate}|${normName(e.customer)}`))
-      .map(e => ({ entry: e, nearby: deposits.filter(d => normName(d.customer) && normName(d.customer) === normName(e.customer)) }))
+      .filter(e => e.payType === "尾款" && e.serviceDate && !e.cancel && !e.noDeposit && !hasDeposit(e))
+      .map(e => ({ entry: e, nearby: deposits.filter(d => sharesName(d.customer, e.customer)) }))
       .sort((a, b) => b.entry.serviceDate.localeCompare(a.entry.serviceDate));
   }
 
@@ -837,7 +842,7 @@ dialog::backdrop{background:rgba(30,22,16,.45)}
   }
 
   root.LedgerEngine = {
-    DEFAULT_SETTINGS, ADVANCE, UNFILLED, CANCEL_LINE, recognize, expenseMonth, categoryType, missingDeposits, isCard, feePending, withFees, balancesAt, settle, advanceOwed, monthEndOf,
+    DEFAULT_SETTINGS, ADVANCE, UNFILLED, CANCEL_LINE, recognize, expenseMonth, categoryType, missingDeposits, splitNames, sharesName, isCard, feePending, withFees, balancesAt, settle, advanceOwed, monthEndOf,
     buildPnL, buildCash, bookings, storedValues, reschedule, cancelBooking, undoCancel, makeDesc, explain, inferDate,
     parseIncomeDesc, parseRow, reparseEntry, canConfirm, confirmEntry, NO_DATE_FLAG, markSuspects, fingerprint, workbookPnL, workbookCash, ledgerRows, deferredList, live, ym,
   };
@@ -1558,7 +1563,7 @@ function sameDayEntries(b) {
   return liveEntries().filter(e => e.serviceDate === b.serviceDate && !e.cancel && e.kind !== "refund");
 }
 
-const pickList = b => sameDayEntries(b).map(e => `<label class="check"><input type="checkbox" class="pick" value="${esc(e.id)}"${(e.customer || "") === b.customer ? " checked" : ""}> <span>${esc(e.desc)}｜${e.kind === "income" ? "收" : "付"} ${money(e.amount)}</span></label>`).join("");
+const pickList = b => sameDayEntries(b).map(e => `<label class="check"><input type="checkbox" class="pick" value="${esc(e.id)}"${(e.customer || "") === b.customer || E.sharesName(e.customer, b.customer) ? " checked" : ""}> <span>${esc(e.desc)}｜${e.kind === "income" ? "收" : "付"} ${money(e.amount)}</span></label>`).join("");
 
 function openMove(key) {
   const b = E.bookings(S.entries).find(x => x.key === key);
@@ -1777,7 +1782,7 @@ function handleInput(el) {
   if (el.dataset?.k && draft) {
     draft[el.dataset.k] = el.value;
     if (el.dataset.k === "customer" && draft.kind === "income" && !draft.id && !draft.serviceDate) {
-      const hit = E.bookings(S.entries).filter(b => !b.cancelled && b.customer === el.value.trim() && b.serviceDate >= draft.date);
+      const hit = E.bookings(S.entries).filter(b => !b.cancelled && E.sharesName(b.customer, el.value.trim()) && b.serviceDate >= draft.date);
       if (hit.length === 1) {
         draft.serviceDate = hit[0].serviceDate;
         draft.brand = hit[0].brand;
